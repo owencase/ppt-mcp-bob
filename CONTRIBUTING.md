@@ -30,6 +30,60 @@ git push
 
 ---
 
+## 0-1. 이미 만들어 둔 MCP 서버를 가져오려면
+
+이 레포 밖에서 만들던 게 있으면 그걸 그대로 들여오면 됩니다. 처음부터 다시
+만들 필요 없습니다.
+
+```bash
+git clone https://github.com/owencase/ppt-mcp-bob.git
+cd ppt-mcp-bob
+git checkout -b feat/내-작업-이름
+
+mkdir -p projects/<내-GitHub-아이디>
+# 만들어 둔 파일을 여기로 복사
+```
+
+**복사할 때 빼야 하는 것**
+
+```
+.venv/          node_modules/          build/  dist/          .pptx
+__pycache__/    .pytest_cache/         .env
+```
+
+`.gitignore` 가 막아주긴 하지만, 폴더를 통째로 복사하면 디스크에는 그대로
+들어옵니다. 용량도 크고 다음 항목의 문제도 생깁니다.
+
+**venv 는 복사하지 말고 새로 만드세요**
+
+venv 안에는 **만들 당시의 절대경로가 박혀 있습니다.** 다른 위치에서 복사해 오면
+그 경로를 계속 찾다가 이렇게 실패합니다.
+
+```
+bad interpreter: /예전/경로/.venv/bin/python3.13: no such file or directory
+```
+
+원인을 모르면 한참 헤맵니다. 그냥 새로 만드는 게 빠릅니다.
+
+```bash
+cd projects/<내-아이디>
+python3 -m venv .venv
+.venv/bin/pip install -e .          # pyproject.toml 이 있다면
+```
+
+**CI 에 걸리게 하려면**
+
+`package.json` 이나 `pyproject.toml` 만 있으면 CI 가 알아서 찾아냅니다.
+`test` 스크립트(Node)나 `tests/` 디렉터리(Python)가 있으면 테스트도 돌려 줍니다.
+없으면 경고만 뜨고 통과는 됩니다 — 다만 리뷰에서 물어볼 겁니다.
+
+**README 를 같이 넣어 주세요**
+
+무엇을 왜 그렇게 만들었는지가 있어야 남이 읽고 이야기할 거리가 생깁니다.
+무엇을 쓰면 되는지는 [MCP-DESIGN.md](MCP-DESIGN.md) 마지막 절에 있습니다.
+
+---
+
 ## 1. 절대 커밋하지 않는 것
 
 | 대상 | 이유 |
