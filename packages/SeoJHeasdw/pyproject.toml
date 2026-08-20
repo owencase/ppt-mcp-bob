@@ -1,0 +1,28 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "ppt-mcp-seojh"
+version = "0.1.0"
+description = "의도 높이의 tool 로 PowerPoint 덱을 만드는 MCP 서버"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "mcp>=1.12.0,<3",
+  "python-pptx>=1.0.2",
+  "pydantic>=2.7",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+ppt-mcp-seojh = "ppt_mcp.server:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ppt_mcp"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
