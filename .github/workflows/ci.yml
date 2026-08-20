@@ -65,7 +65,7 @@ jobs:
 
       - name: 레포 루트에 소스 파일을 두지 않았는지 확인
         run: |
-          # CONTRIBUTING.md 2절: 소스는 reference/ · projects/ · examples/ 아래에만.
+          # CONTRIBUTING.md 2절: 소스는 reference/ 또는 projects/ 아래에만.
           # ':(top,glob)' 의 glob 매직이 중요합니다. 이게 없으면 '*' 가 '/' 까지
           # 먹어서 하위 디렉터리 소스까지 전부 걸립니다.
           stray=$(git -c core.quotePath=false ls-files --full-name -- ':(top,glob)*.ts' ':(top,glob)*.js' ':(top,glob)*.mjs' ':(top,glob)*.py' || true)
