@@ -48,7 +48,9 @@ def main() -> None:
     edit.add_argument("--template-dir"); edit.add_argument("--audience", default=""); edit.add_argument("--purpose", default="")
     edit.add_argument("--language", default="ko"); edit.add_argument("--research-text")
     edit.add_argument("--research-documents"); edit.add_argument("--source-url", action="append", default=[])
-    edit.add_argument("--allow-generic-fallback", action="store_true"); edit.add_argument("--visible", action="store_true")
+    edit.add_argument("--allow-generic-fallback", action="store_true")
+    edit.add_argument("--step-delay", type=float, default=0.55, help="각 COM 수정 전후 표시 시간(초), 0.20~5.0")
+    edit.add_argument("--post-qa-rounds", type=int, default=2, choices=[0,1,2,3], help="전체 편집 후 문제 슬라이드만 다시 수정하는 최대 횟수")
     edit.add_argument("--yes-mode-confirmed", action="store_true", help="template_com 모드를 사용자가 이미 명시적으로 확인함")
 
     inspect = sub.add_parser("inspect-template"); inspect.add_argument("path")
@@ -87,7 +89,8 @@ def main() -> None:
             research_text=research_text, source_urls=args.source_url,
             research_required=not args.allow_generic_fallback,
             research_documents=research_documents, template_dir=args.template_dir,
-            visible=args.visible,
+            step_delay=args.step_delay,
+            max_post_qa_rounds=args.post_qa_rounds,
         )
     elif args.command == "inspect-template":
         result = inspect_template(args.path)
