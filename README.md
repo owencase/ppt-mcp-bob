@@ -2,12 +2,16 @@
 
 > **각자 PowerPoint MCP 서버를 만들고, 서로의 구현을 비교하며 배우는 레포입니다.**
 
-LLM 클라이언트(Claude / Copilot / ChatGPT)에서 자연어로 `.pptx` 를 만드는
-MCP 서버를 각자 하나씩 만듭니다. 같은 문제를 서로 다르게 푼 구현들이
-`projects/` 아래에 나란히 놓이고, 그걸 읽고 이야기하면서 더 나은 방향을
-찾는 것이 이 레포의 목적입니다.
+**IBM BoB**(코딩 에이전트)에 붙여서 자연어로 `.pptx` 를 만드는 MCP 서버를
+각자 하나씩 만듭니다.
 
+같은 문제를 서로 다르게 푼 구현들이 `projects/` 아래에 나란히 놓이고, 그걸
+읽고 이야기하면서 더 나은 방향을 찾는 것이 이 레포의 목적입니다.
 **비슷한 걸 여러 명이 만드는 것은 중복이 아니라 의도입니다.**
+
+> 붙일 대상은 **IBM BoB** 입니다. MCP 는 표준 프로토콜이라 Claude Code ·
+> Copilot 같은 다른 클라이언트에도 그대로 붙지만, 동작 확인은 BoB 기준으로
+> 하세요.
 
 ---
 
@@ -24,7 +28,7 @@ reference/ppt-bridge/bridge.py          python-pptx 로 실제 파일 조작
 
 ### 2. 직접 돌려 봅니다
 
-아래 "설치 및 빌드" 를 따라 하면 MCP 클라이언트에서 실제로 PPT 가 만들어집니다.
+아래 "설치 및 빌드" 를 따라 하면 BoB 에서 실제로 PPT 가 만들어집니다.
 남의 코드를 읽기 전에 **돌아가는 걸 한 번 보는 게** 이해가 빠릅니다.
 
 ### 3. 내 프로젝트를 만듭니다
@@ -93,7 +97,8 @@ ppt-mcp-bob/
 여러분의 프로젝트는 이 구조를 따르지 않아도 됩니다.
 
 ```
-LLM Client (Claude / Copilot / ChatGPT)
+IBM BoB  ← 주 대상 (코딩 에이전트)
+  다른 MCP 클라이언트(Claude Code, Copilot 등)도 동일하게 동작
         │  MCP Protocol (stdio JSON-RPC)
         ▼
 reference/mcp-server   ← TypeScript / Node.js · Tool 정의
@@ -162,8 +167,12 @@ PR 을 열면 이 검사가 [CI](.github/workflows/ci.yml) 에서 자동으로 �
 
 ## MCP 클라이언트에 등록하기
 
-`config/mcp.json` 을 클라이언트의 MCP 설정 파일에 병합하고,
-`args` 의 경로를 **본인 환경의 절대경로**로 바꿔 주세요.
+`config/mcp.json` 을 **IBM BoB** 의 MCP 설정에 병합하고, `args` 의 경로를
+**본인 환경의 절대경로**로 바꿔 주세요.
+
+`mcpServers` 형식은 MCP 클라이언트 공통이라 내용은 그대로 쓰면 되지만,
+**설정 파일이 어디 있는지는 클라이언트마다 다릅니다.** BoB 쪽 경로는 BoB
+문서를 확인하세요.
 
 ```json
 {
@@ -231,7 +240,7 @@ MCP 클라이언트는 임의의 작업 디렉터리에서 서버를 실행하�
 
 ## 사용 예시
 
-LLM 클라이언트에서 다음과 같이 요청하면 됩니다:
+BoB 에서 다음과 같이 요청하면 됩니다:
 
 ```
 "AI 기술 소개 PPT를 5장짜리로 만들어줘. tech_blue 테마로 해주고,

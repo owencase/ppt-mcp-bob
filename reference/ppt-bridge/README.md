@@ -46,7 +46,7 @@ HANDLERS = {
 ```
 
 3. `reference/mcp-server/src/index.ts` 에 대응하는 tool 을 등록합니다.
-   여기까지 해야 LLM 클라이언트에서 보입니다.
+   여기까지 해야 BoB 에서 tool 로 보입니다.
 
 ## 규칙
 
