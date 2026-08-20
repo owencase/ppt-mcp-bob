@@ -50,18 +50,15 @@ ppt-mcp-bob/
 │   ├── CODEOWNERS
 │   └── pull_request_template.md
 ├── config/mcp.json           # MCP 클라이언트 등록 설정 (샘플)
-├── examples/                 # 실행 가능한 예시 스크립트
 ├── MCP-DESIGN.md             # 설계 판단 기준 · 리뷰 체크리스트
 │
-├── reference/                # ← 공용. 모두가 읽는 레퍼런스 구현
+├── reference/                # ← 공용. 모두가 읽는 것
 │   ├── mcp-server/           #   TypeScript MCP 서버
-│   └── ppt-bridge/           #   Python 브릿지 (python-pptx)
+│   ├── ppt-bridge/           #   Python 브릿지 (python-pptx) + 최소 예제
+│   └── design-library/       #   템플릿·테마 메타데이터 규약
 │
 └── projects/                 # ← 사람별. 폴더명 = GitHub 아이디
-    ├── SeoJHeasdw/           #   멘토의 ppt-mcp
-    ├── design-library/       #   (담당 확인 대기)
-    ├── html-ppt-mcp/         #   (담당 확인 대기)
-    └── html-render-pptx/     #   (담당 확인 대기)
+    └── SeoJHeasdw/           #   멘토의 ppt-mcp
 ```
 
 **`reference/` 는 읽는 것, `projects/` 는 만드는 것입니다.** 성격이 달라서
@@ -77,17 +74,16 @@ ppt-mcp-bob/
 |---|---|---|
 | `reference/mcp-server` | 레퍼런스 MCP 서버 (TypeScript) | 공용 |
 | `reference/ppt-bridge` | 레퍼런스 브릿지 (Python · python-pptx) | 공용 |
+| `reference/design-library` | 템플릿·테마 메타데이터 규약 | 공용 |
 | `projects/SeoJHeasdw` | ppt-mcp — 의도 높이의 tool + resources/prompts | `@SeoJHeasdw` |
-| `projects/design-library` | 템플릿·테마 메타데이터 | *미확인* |
-| `projects/html-render-pptx` | HTML/CSS → PPTX | *미확인* |
-| `projects/html-ppt-mcp` | HTML 기반 MCP 서버 | *미확인* |
+
+**여기가 비어 보이는 게 정상입니다.** `projects/` 는 여러분이 채우는 자리입니다.
 
 각 항목은 **독립적으로 설치·실행**됩니다. 하나를 보려고 전체를 설치할 필요는
 없습니다. 자세한 사용법은 각 폴더의 `README.md` 를 보세요.
 
-> `projects/` 폴더명은 **GitHub 아이디**입니다. 아래 세 개는 그 규칙 이전에
-> 만들어진 것이라 기능 이름을 쓰고 있습니다. 담당자가 정해지면 아이디 폴더로
-> 옮깁니다. `공용` 은 모두가 참고하는 코드라 바꾸려면 이슈를 먼저 열어 주세요.
+> `projects/` 폴더명은 **GitHub 아이디**입니다.
+> `공용` 은 모두가 참고하는 코드라 바꾸려면 이슈를 먼저 열어 주세요.
 
 ---
 
@@ -242,10 +238,10 @@ LLM 클라이언트에서 다음과 같이 요청하면 됩니다:
  첫 번째 슬라이드에 제목은 'AI 혁신의 시대'로 크게 넣어줘."
 ```
 
-브릿지를 직접 호출하는 스크립트 예시는 `examples/build_ibm_quantum.py` 를 참고하세요.
+MCP 서버 없이 브릿지만 직접 호출하는 46줄짜리 예제도 있습니다.
 
 ```bash
-python3 -X utf8 examples/build_ibm_quantum.py
+cd reference/ppt-bridge && .venv/bin/python example_deck.py
 ```
 
 ---

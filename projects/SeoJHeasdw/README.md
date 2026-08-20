@@ -22,8 +22,7 @@ add_text_box(file_path, slide_index, text, left_cm, top_cm, width_cm, height_cm,
 
 이러면 **좌표 계산이 LLM 의 일이 됩니다.** 5장짜리 덱을 만들려면 30번쯤
 호출해야 하고, 계산이 틀리면 글자가 슬라이드 밖으로 나가거나 상자를 넘칩니다.
-`examples/build_ibm_quantum.py` 가 214줄인 이유가 그겁니다 — 좌표를 사람이
-전부 손으로 넣었습니다.
+좌표를 전부 손으로 넣은 스크립트가 200줄을 넘기던 이유가 그겁니다.
 
 여기서는 **서버가 레이아웃을 책임집니다.**
 
