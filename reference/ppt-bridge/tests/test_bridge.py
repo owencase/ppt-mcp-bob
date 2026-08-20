@@ -51,7 +51,7 @@ class TestPureFunctions:
 #
 # mcp-server 는 stdout 한 줄을 JSON.parse 합니다. 어떤 입력이 와도 파싱
 # 가능한 JSON 이 나와야 하고, 실패는 예외가 아니라 success:false 여야 합니다.
-# 이게 깨지면 LLM 클라이언트에는 "Invalid JSON from bridge" 라는 아무 정보
+# 이게 깨지면 BoB 에는 "Invalid JSON from bridge" 라는 아무 정보
 # 없는 문자열만 보입니다.
 # ───────────────────────────────────────────────────────────────────────────
 class TestProtocol:
