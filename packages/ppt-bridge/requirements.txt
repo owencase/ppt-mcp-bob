@@ -1,0 +1,6 @@
+# bridge.py 는 python-pptx 로 .pptx 파일을 직접 읽고 씁니다.
+# (PowerPoint COM 자동화가 아니므로 Windows 전용 pywin32 는 필요 없습니다.)
+python-pptx~=1.0.2
+
+# add_image 액션의 이미지 크기 계산에 사용됩니다.
+Pillow~=11.2

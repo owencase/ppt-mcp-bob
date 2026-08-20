@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "ppt-mcp-server": {
+      "command": "node",
+      "args": ["/ABSOLUTE/PATH/TO/ppt-mcp-bob/packages/mcp-server/build/index.js"],
+      "env": {
+        "PYTHON_BIN": "python3"
+      }
+    }
+  }
+}
