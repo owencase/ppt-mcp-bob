@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "canva-ppt-mcp"
-version = "3.4.0"
-description = "Hybrid PowerPoint MCP: python-pptx generation plus fully visible Windows COM template editing, deferred post-edit QA, bounded targeted repair, cycle breaking, and tolerant design QA."
+version = "3.0.0"
+description = "Hybrid PowerPoint MCP: python-pptx generation plus Windows COM template-content editing with mandatory mode confirmation."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [

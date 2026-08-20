@@ -55,24 +55,10 @@ After confirmation:
 4. The template must come from `/template`; never use an arbitrary outside path.
 5. Never overwrite the original template. Write to a separate output path.
 6. Change visible text content through PowerPoint COM. Do not rebuild the deck with python-pptx.
-7. **Watch mode is mandatory:** PowerPoint must be visible on screen for the entire COM edit. Never request or pass a hidden/background mode.
-8. Before each text replacement, navigate the PowerPoint window to that slide and select the exact text box so the user can see what will change.
-9. Pause briefly before and after each replacement (default `step_delay=0.55`, allowed 0.20~5.0 seconds) so the edit is perceptible.
-10. After saving, leave the edited presentation open in PowerPoint so the user can inspect the final result.
-11. Preserve slide count, shape count, shape geometry, rotation, fill/line styling, images, charts, and other visual structure.
-12. Never force `TextFrame2.AutoSize=2`. Preserve the template's existing AutoSize and visible text style after replacement.
-13. **Do not fail fast during the first COM pass.** Apply every slide/text box possible, record per-shape errors/overflow, and finish/save the whole deck before QA.
-14. Run post-QA only after the full first pass. Repair only the affected slide/text box, not the whole presentation. Default `max_post_qa_rounds=2`; never exceed 3.
-15. If text overflows during post-QA, shorten the replacement using only facts already present; only then allow a limited font-size reduction (max 12.5% and max 4pt, never below 14pt). Never resize or move the shape to make text fit.
-16. If the same issue signature repeats, stop repair immediately with the cycle breaker. Never restart the whole template job automatically.
-17. Final unresolved QA issues must be returned in the manifest (`completed_with_unresolved_issues`, `automatic_restart_blocked=true`) rather than throwing a content/design QA exception that could trigger an external retry loop.
-18. **Bob-safe MCP boundary:** expected mode-gate, COM, save, semantic-QA, and post-QA failures must be returned as normal JSON whenever possible, with `tool_call_succeeded=true`, `mcp_transport_error=false`, `do_not_retry=true`. Do not turn them into tool exceptions.
-19. If `do_not_retry=true` is returned, never call `edit_template_presentation` again automatically with the same request or execution token. Report the current output/log state to the user instead.
-20. Treat PowerPoint theme/RGB or implicit/explicit run normalization as benign. Record actual structure/geometry/color/font changes as final QA errors; limited overflow font reduction is a warning.
-21. Use the explicit PowerPoint presentation handle opened for the output file; never rely on whichever PowerPoint window happens to be active.
-22. Suppress PowerPoint modal alerts during automated edits while keeping the PowerPoint window visible; collect errors into post-QA instead.
-23. If PowerPoint is temporarily busy and COM returns call-rejected/retry-later errors, use the MCP's bounded retry behavior.
-24. If Windows, Microsoft PowerPoint, or pywin32 is unavailable, report that COM template editing cannot run on that machine. Do not silently fall back to python-pptx template editing.
+7. Preserve slide count, shape count, shape geometry, rotation, fill/line styling, images, charts, and other visual structure.
+8. Use the explicit PowerPoint presentation handle opened for the output file; never rely on whichever PowerPoint window happens to be active.
+9. If PowerPoint is temporarily busy and COM returns call-rejected/retry-later errors, use the MCP's bounded retry behavior.
+10. If Windows, Microsoft PowerPoint, or pywin32 is unavailable, report that COM template editing cannot run on that machine. Do not silently fall back to python-pptx template editing.
 
 ## Required user-facing question
 
@@ -89,5 +75,4 @@ Before reporting success, verify:
 - `generate` used python-pptx and no template path.
 - `template_com` used PowerPoint COM and a `/template` source.
 - The original template was not overwritten.
-- Template mode may finish with unresolved QA issues. Report `completion_status`, `passed`, `design_preserved`, and `post_validation`; do not automatically run the whole job again.
-- Template mode reports `watch_mode.enabled: true`, `powerpoint_visible: true`, and `keep_result_open: true`.
+- Template mode reports `design_preserved: true`; otherwise treat the operation as failed.
