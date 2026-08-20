@@ -1,0 +1,34 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "canva-ppt-mcp"
+version = "3.4.0"
+description = "Hybrid PowerPoint MCP: python-pptx generation plus fully visible Windows COM template editing, deferred post-edit QA, bounded targeted repair, cycle breaking, and tolerant design QA."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "mcp>=1.12.0,<3",
+  "Pillow>=11.0.0",
+  "PyMuPDF>=1.26.0",
+  "pydantic>=2.11.0",
+  "python-pptx>=1.0.2",
+]
+
+[project.optional-dependencies]
+ai = ["openai>=1.100.0"]
+windows = ["pywin32>=306"]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+canva-ppt-mcp = "canva_ppt_mcp.server:main"
+canva-ppt = "canva_ppt_mcp.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/canva_ppt_mcp"]
+include = ["src/canva_ppt_mcp/**"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
