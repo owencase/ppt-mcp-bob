@@ -7,13 +7,16 @@
 <!-- 실행한 명령과 결과를 붙여 주세요. "됩니다"만으로는 리뷰가 안 됩니다. -->
 
 ```
-cd packages/mcp-server && npm ci && npm run build
+cd packages/ppt-bridge && .venv/bin/python -m pytest tests
+cd packages/mcp-server && npm ci && npm test
 ```
 
 ## 체크리스트
 
-- [ ] `git status` 로 올라가는 파일을 눈으로 확인했습니다
-- [ ] `node_modules/`, `build/`, `.pptx` 가 diff에 없습니다
+> `node_modules/` · `build/` · `.pptx` · 파일 삭제는 이제 CI 가 대신 봅니다.
+> 아래는 기계가 못 보는 것들입니다.
+
+- [ ] 테스트를 추가했거나, 왜 없어도 되는지 아래에 적었습니다
 - [ ] 기존 파일/디렉터리를 **삭제하지 않았습니다**
       (대체가 목적이라면 지우지 말고 `packages/` 아래에 새로 추가한 뒤 이슈에서 논의)
 - [ ] GitHub 웹 UI 업로드가 아니라 `git push` 로 올렸습니다

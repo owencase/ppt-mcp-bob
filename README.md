@@ -28,6 +28,9 @@ packages/ppt-bridge    ← Python / python-pptx · 실제 파일 조작
 
 ```
 ppt-mcp-bob/
+├── .github/
+│   ├── workflows/ci.yml          # PR 마다 도는 자동 검사
+│   └── pull_request_template.md
 ├── config/
 │   └── mcp.json                  # MCP 클라이언트 등록 설정 (샘플)
 ├── examples/
@@ -35,11 +38,14 @@ ppt-mcp-bob/
 └── packages/
     ├── mcp-server/               # Node.js MCP 서버
     │   ├── src/index.ts          # 모든 Tool 정의
+    │   ├── test/tools.test.mjs   # tool 노출 + 브릿지 계약 테스트
     │   ├── package.json
     │   └── tsconfig.json
     └── ppt-bridge/               # Python 브릿지
         ├── bridge.py             # python-pptx 기반 액션 핸들러
-        └── requirements.txt
+        ├── tests/test_bridge.py  # 프로토콜 · 액션 테스트
+        ├── requirements.txt
+        └── requirements-dev.txt  # pytest (테스트용)
 ```
 
 새 컴포넌트를 추가할 때는 `packages/<이름>/` 아래에 만들어 주세요.
@@ -52,15 +58,22 @@ ppt-mcp-bob/
 각 패키지는 **독립적으로 설치·실행**됩니다. 하나를 쓰려고 전체를 설치할 필요는 없습니다.
 자세한 사용법은 각 패키지의 `README.md` 를 보세요.
 
-| 패키지 | 하는 일 | 설치 · 실행 | 상태 |
-|---|---|---|---|
-| `packages/mcp-server` | MCP 서버. tool 9종을 LLM 클라이언트에 노출 | `npm ci && npm run build` | `main` |
-| `packages/ppt-bridge` | python-pptx 로 `.pptx` 를 직접 조작 | `pip install -r requirements.txt` | `main` |
-| `packages/design-library` | PPT 템플릿·테마 메타데이터 | — | `feat/bridge-extended` 작업 중 |
-| `packages/html-render-pptx` | HTML/CSS 렌더링 → PPTX 내보내기 | `npm install && npm test` | `feat/html-render-pptx` 작업 중 |
-| `packages/html-ppt-mcp` | HTML 기반 프레젠테이션 생성 MCP 서버 | `npm install && npm run build` | `feat/html-ppt-mcp` 작업 중 |
+| 패키지 | 하는 일 | 담당 | 설치 · 실행 | 상태 |
+|---|---|---|---|---|
+| `packages/mcp-server` | MCP 서버. tool 9종을 LLM 클라이언트에 노출 | (레퍼런스) | `npm ci && npm run build` | `main` |
+| `packages/ppt-bridge` | python-pptx 로 `.pptx` 를 직접 조작 | (레퍼런스) | `pip install -r requirements.txt` | `main` |
+| `packages/design-library` | PPT 템플릿·테마 메타데이터 | `@github-id` | — | `feat/bridge-extended` 작업 중 |
+| `packages/html-render-pptx` | HTML/CSS 렌더링 → PPTX 내보내기 | `@github-id` | `npm install && npm test` | `feat/html-render-pptx` 작업 중 |
+| `packages/html-ppt-mcp` | HTML 기반 프레젠테이션 생성 MCP 서버 | `@github-id` | `npm install && npm run build` | `feat/html-ppt-mcp` 작업 중 |
 
 > 작업 중인 패키지는 해당 브랜치에만 있습니다. `main` 에 머지되면 상태가 `main` 으로 바뀝니다.
+>
+> **담당** 은 그 패키지를 만든 사람입니다. 질문·리뷰 요청은 담당자에게 보내세요.
+> 새 패키지를 만들면 이 표에 자기 줄을 추가하는 것까지가 PR 범위입니다.
+> `(레퍼런스)` 는 모두가 참고하는 공용 구현이라 바꾸려면 이슈를 먼저 열어 주세요.
+
+> 비슷한 걸 두 사람이 각자 만드는 것은 **문제가 아닙니다.** 접근이 다르면 비교해서
+> 배울 게 생깁니다. 다만 남의 패키지를 지우거나 덮어쓰지는 마세요 (CONTRIBUTING.md 4절).
 
 ### 어느 걸 쓰면 되나요
 
@@ -85,9 +98,12 @@ ppt-mcp-bob/
 
 ```bash
 cd packages/ppt-bridge
-python3 -m venv .venv && source .venv/bin/activate   # 권장
-pip install -r requirements.txt
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt -r requirements-dev.txt
 ```
+
+> venv 경로(`packages/ppt-bridge/.venv`)를 그대로 쓰는 걸 권장합니다.
+> 아래 MCP 설정에서 이 경로를 그대로 가리키게 되어 있습니다.
 
 ### 2. Node.js 의존성 설치 및 빌드
 
@@ -98,6 +114,19 @@ npm run build
 ```
 
 빌드 결과물: `packages/mcp-server/build/index.js`
+
+### 3. 테스트
+
+```bash
+cd packages/ppt-bridge && .venv/bin/python -m pytest tests -v
+cd packages/mcp-server && npm test
+```
+
+PR 을 열면 이 검사가 [CI](.github/workflows/ci.yml) 에서 자동으로 돕니다.
+빨간불이 뜨면 Actions 탭의 요약(Summary)에 고치는 방법이 적혀 있습니다.
+
+`mcp-server` 의 계약 테스트는 `index.ts` 의 tool 목록과 `bridge.py` 의
+`HANDLERS` 가 어긋났는지 확인합니다. 액션을 추가할 때 한쪽만 고치면 여기서 잡힙니다.
 
 ---
 
@@ -113,7 +142,7 @@ npm run build
       "command": "node",
       "args": ["/ABSOLUTE/PATH/TO/ppt-mcp-bob/packages/mcp-server/build/index.js"],
       "env": {
-        "PYTHON_BIN": "python3"
+        "PYTHON_BIN": "/ABSOLUTE/PATH/TO/ppt-mcp-bob/packages/ppt-bridge/.venv/bin/python"
       }
     }
   }
@@ -122,11 +151,16 @@ npm run build
 
 MCP 클라이언트는 임의의 작업 디렉터리에서 서버를 실행하므로 **상대경로를 쓰면 안 됩니다.**
 
+> ⚠️ `PYTHON_BIN` 을 그냥 `python3` 로 두면 안 됩니다. MCP 클라이언트는 venv 가
+> 활성화되지 않은 상태로 서버를 띄우기 때문에, `python3` 는 `python-pptx` 가 없는
+> 시스템 파이썬을 가리키게 되고 **모든 tool 호출이 실패합니다.**
+> venv 안의 python 실행 파일을 절대경로로 직접 가리켜 주세요.
+
 ### 환경변수
 
 | 변수 | 기본값 | 설명 |
 |------|--------|------|
-| `PYTHON_BIN` | `python3` | Python 실행 파일 경로. venv를 쓴다면 `.venv/bin/python` 을 지정하세요. |
+| `PYTHON_BIN` | `python3` | Python 실행 파일 경로. **venv 안의 python 을 절대경로로 지정하세요.** 기본값은 venv 를 못 찾습니다. |
 | `BRIDGE_SCRIPT` | `packages/ppt-bridge/bridge.py` | 브릿지 스크립트 경로 직접 지정 (경로에 한글이 섞여 문제가 될 때 사용) |
 
 ---

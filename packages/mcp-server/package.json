@@ -10,7 +10,9 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
-    "start": "node build/index.js"
+    "start": "node build/index.js",
+    "pretest": "npm run build",
+    "test": "node --test test/*.test.mjs"
   },
   "files": [
     "build"
