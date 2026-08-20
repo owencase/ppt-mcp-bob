@@ -3,12 +3,14 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "HTML 기반 PowerPoint 프레젠테이션을 생성하는 MCP 서버",
+  "description": "HTML \uae30\ubc18 PowerPoint \ud504\ub808\uc820\ud14c\uc774\uc158\uc744 \uc0dd\uc131\ud558\ub294 MCP \uc11c\ubc84",
   "main": "build/index.js",
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
-    "start": "node build/index.js"
+    "start": "node build/index.js",
+    "pretest": "npm run build",
+    "test": "node --test test/*.test.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",

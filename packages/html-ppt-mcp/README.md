@@ -14,9 +14,14 @@ npm start
 ## 구조
 
 ```
-src/index.ts   tool 정의 + 서버 부팅
-build/         tsc 산출물 (커밋하지 않음)
+src/index.ts        tool 정의 + 서버 부팅
+test/               node --test 로 실행 (npm test)
+build/              tsc 산출물 (커밋하지 않음)
 ```
+
+`npm test` 는 빌드를 먼저 돌린 뒤, 진짜 MCP 클라이언트로 서버에 붙어서
+tool 이 실제로 노출되는지 확인합니다. tool 을 추가하면 테스트도 같이
+추가해 주세요. 더 자세한 예시는 `packages/mcp-server/test/tools.test.mjs`.
 
 ## 규칙
 
