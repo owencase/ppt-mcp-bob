@@ -15,8 +15,12 @@ npm test
 ```
 src/themes.mjs   테마(색상) 정의
 src/render.mjs   슬라이드 → HTML 렌더링
+src/server.mjs   MCP 서버 (아직 없음 — 여기부터 만드시면 됩니다)
 test/            node --test 로 실행
 ```
+
+`npm start` 는 `src/server.mjs` 를 실행합니다. 아직 그 파일이 없어서 지금은
+실패합니다. `packages/mcp-server/src/index.ts` 의 부팅 부분을 참고하세요.
 
 ## 규칙
 
