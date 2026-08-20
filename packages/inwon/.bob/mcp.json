@@ -1,9 +1,0 @@
-{
-  "mcpServers": {
-    "canva-ppt": {
-      "command": "C:\\Users\\INWONBAEK\\AppData\\Local\\Programs\\Python\\Python314\\Scripts\\canva-ppt-mcp.exe",
-      "args": [],
-      "timeout": 600000
-    }
-  }
-}
