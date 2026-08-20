@@ -4,6 +4,32 @@
 
 ---
 
+## 0. 이것만 하면 됩니다
+
+바쁘면 이 절만 읽으세요. 나머지는 필요할 때 찾아보면 됩니다.
+
+```bash
+git checkout feat/내-브랜치      # 본인 브랜치는 이미 만들어져 있습니다
+git pull
+
+# ... 자기 패키지(packages/<이름>/) 안에서 작업 ...
+
+git add .
+git commit -m "feat: 무엇을 왜 바꿨는지"
+git push
+```
+
+그 다음 GitHub 에서 **Pull Request 를 엽니다.**
+
+- PR 을 열면 CI 가 자동으로 검사합니다. **초록불이면 끝입니다.**
+- 빨간불이면 Actions 탭 Summary 에 고치는 방법이 적혀 있습니다. 그대로 하면 됩니다.
+- `main` 을 직접 건드리거나 남의 `packages/` 를 고칠 일은 없습니다.
+
+작업은 **자기 패키지 안에서만** 하면 됩니다. 그러면 남과 부딪힐 일이 없어서
+충돌을 해결할 필요도 없습니다.
+
+---
+
 ## 1. 절대 커밋하지 않는 것
 
 | 대상 | 이유 |
@@ -100,19 +126,17 @@ docs/readme-setup       문서
 
 ### 절차
 
+0절을 보세요. 브랜치를 새로 만들 때만 아래가 추가됩니다.
+
 ```bash
 git checkout main
 git pull                          # 항상 최신 main에서 시작
 git checkout -b feat/my-feature
-
-# ... 작업 ...
-
-git add -p                        # 필요한 것만 골라서 스테이징
-git commit -m "feat: 무엇을 왜 바꿨는지"
+...
 git push -u origin feat/my-feature
 ```
 
-그 다음 GitHub에서 **PR을 열고 리뷰를 요청**합니다. main에 직접 push 금지.
+main 에 직접 push 는 하지 않습니다.
 
 ### 커밋 메시지
 
