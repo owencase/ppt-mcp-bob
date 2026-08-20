@@ -1,10 +1,100 @@
-# PPT MCP Server
+# ppt-mcp-bob
 
-> LLM 클라이언트(Claude / Copilot / ChatGPT)에서 자연어로 PowerPoint 파일을 자동 생성·편집할 수 있는 MCP 서버입니다.
+> **각자 PowerPoint MCP 서버를 만들고, 서로의 구현을 비교하며 배우는 레포입니다.**
+
+LLM 클라이언트(Claude / Copilot / ChatGPT)에서 자연어로 `.pptx` 를 만드는
+MCP 서버를 각자 하나씩 만듭니다. 같은 문제를 서로 다르게 푼 구현들이
+`projects/` 아래에 나란히 놓이고, 그걸 읽고 이야기하면서 더 나은 방향을
+찾는 것이 이 레포의 목적입니다.
+
+**비슷한 걸 여러 명이 만드는 것은 중복이 아니라 의도입니다.**
 
 ---
 
-## 아키텍처
+## 처음 오셨다면
+
+### 1. 레퍼런스를 읽습니다
+
+`reference/` 에 동작하는 구현이 있습니다. 작고 단순해서 한 번에 읽힙니다.
+
+```
+reference/mcp-server/src/index.ts       tool 9개 정의 (TypeScript)
+reference/ppt-bridge/bridge.py          python-pptx 로 실제 파일 조작
+```
+
+### 2. 직접 돌려 봅니다
+
+아래 "설치 및 빌드" 를 따라 하면 MCP 클라이언트에서 실제로 PPT 가 만들어집니다.
+남의 코드를 읽기 전에 **돌아가는 걸 한 번 보는 게** 이해가 빠릅니다.
+
+### 3. 내 프로젝트를 만듭니다
+
+```
+projects/<내-GitHub-아이디>/
+```
+
+레퍼런스를 그대로 베껴도 되고, 완전히 다르게 만들어도 됩니다.
+설계를 어떤 축으로 판단하면 되는지는 [MCP-DESIGN.md](MCP-DESIGN.md) 에 정리했습니다.
+남의 구현을 리뷰할 때도 같은 문서를 씁니다.
+
+작업 절차(브랜치·PR·CI)는 [CONTRIBUTING.md](CONTRIBUTING.md) 0절이면 충분합니다.
+
+---
+
+## 폴더 구조
+
+```
+ppt-mcp-bob/
+├── .github/
+│   ├── workflows/ci.yml      # PR 마다 도는 자동 검사
+│   ├── CODEOWNERS
+│   └── pull_request_template.md
+├── config/mcp.json           # MCP 클라이언트 등록 설정 (샘플)
+├── examples/                 # 실행 가능한 예시 스크립트
+├── MCP-DESIGN.md             # 설계 판단 기준 · 리뷰 체크리스트
+│
+├── reference/                # ← 공용. 모두가 읽는 레퍼런스 구현
+│   ├── mcp-server/           #   TypeScript MCP 서버
+│   └── ppt-bridge/           #   Python 브릿지 (python-pptx)
+│
+└── projects/                 # ← 사람별. 폴더명 = GitHub 아이디
+    ├── SeoJHeasdw/           #   멘토의 ppt-mcp
+    ├── design-library/       #   (담당 확인 대기)
+    ├── html-ppt-mcp/         #   (담당 확인 대기)
+    └── html-render-pptx/     #   (담당 확인 대기)
+```
+
+**`reference/` 는 읽는 것, `projects/` 는 만드는 것입니다.** 성격이 달라서
+디렉터리를 나눴습니다.
+
+`node_modules/`, `build/`, 생성된 `.pptx` 는 **커밋하지 않습니다** (`.gitignore` 참고).
+
+---
+
+## 지금 있는 것들
+
+| 경로 | 하는 일 | 담당 |
+|---|---|---|
+| `reference/mcp-server` | 레퍼런스 MCP 서버 (TypeScript) | 공용 |
+| `reference/ppt-bridge` | 레퍼런스 브릿지 (Python · python-pptx) | 공용 |
+| `projects/SeoJHeasdw` | ppt-mcp — 의도 높이의 tool + resources/prompts | `@SeoJHeasdw` |
+| `projects/design-library` | 템플릿·테마 메타데이터 | *미확인* |
+| `projects/html-render-pptx` | HTML/CSS → PPTX | *미확인* |
+| `projects/html-ppt-mcp` | HTML 기반 MCP 서버 | *미확인* |
+
+각 항목은 **독립적으로 설치·실행**됩니다. 하나를 보려고 전체를 설치할 필요는
+없습니다. 자세한 사용법은 각 폴더의 `README.md` 를 보세요.
+
+> `projects/` 폴더명은 **GitHub 아이디**입니다. 아래 세 개는 그 규칙 이전에
+> 만들어진 것이라 기능 이름을 쓰고 있습니다. 담당자가 정해지면 아이디 폴더로
+> 옮깁니다. `공용` 은 모두가 참고하는 코드라 바꾸려면 이슈를 먼저 열어 주세요.
+
+---
+
+## 레퍼런스 구현의 구조
+
+아래 "설치 및 빌드" 부터는 **`reference/` 구현** 에 대한 설명입니다.
+여러분의 프로젝트는 이 구조를 따르지 않아도 됩니다.
 
 ```
 LLM Client (Claude / Copilot / ChatGPT)
@@ -19,66 +109,8 @@ reference/ppt-bridge   ← Python / python-pptx · 실제 파일 조작
 .pptx 파일
 ```
 
-> `.pptx` 파일을 **직접 읽고 쓰는** 방식입니다. PowerPoint COM 자동화가 아니므로
-> Windows나 PowerPoint 설치가 없어도 동작합니다. (열어서 보려면 뷰어는 필요합니다.)
-
----
-
-## 폴더 구조
-
-```
-ppt-mcp-bob/
-├── .github/
-│   ├── workflows/ci.yml      # PR 마다 도는 자동 검사
-│   ├── CODEOWNERS
-│   └── pull_request_template.md
-├── config/mcp.json           # MCP 클라이언트 등록 설정 (샘플)
-├── examples/                 # 실행 가능한 예시 스크립트
-│
-├── reference/                # ← 공용. 모두가 읽는 레퍼런스 구현
-│   ├── mcp-server/           #   TypeScript MCP 서버
-│   └── ppt-bridge/           #   Python 브릿지 (python-pptx)
-│
-└── projects/                 # ← 사람별. 폴더명 = GitHub 아이디
-    ├── SeoJHeasdw/           #   멘토의 ppt-mcp
-    ├── design-library/       #   (담당 확인 대기)
-    ├── html-ppt-mcp/         #   (담당 확인 대기)
-    └── html-render-pptx/     #   (담당 확인 대기)
-```
-
-**`reference/` 는 읽는 것, `projects/` 는 만드는 것입니다.** 성격이 달라서
-디렉터리를 나눴습니다. 내 작업은 `projects/<내-GitHub-아이디>/` 아래에 만듭니다.
-`node_modules/`, `build/`, 생성된 `.pptx` 는 **커밋하지 않습니다** (`.gitignore` 참고).
-
----
-
-## 패키지
-
-각 패키지는 **독립적으로 설치·실행**됩니다. 하나를 쓰려고 전체를 설치할 필요는 없습니다.
-자세한 사용법은 각 패키지의 `README.md` 를 보세요.
-
-| 경로 | 하는 일 | 담당 |
-|---|---|---|
-| `reference/mcp-server` | 레퍼런스 MCP 서버 (TypeScript) | 공용 |
-| `reference/ppt-bridge` | 레퍼런스 브릿지 (Python · python-pptx) | 공용 |
-| `projects/SeoJHeasdw` | ppt-mcp — 의도 높이의 tool + resources/prompts | `@SeoJHeasdw` |
-| `projects/design-library` | 템플릿·테마 메타데이터 | *미확인* |
-| `projects/html-render-pptx` | HTML/CSS → PPTX | *미확인* |
-| `projects/html-ppt-mcp` | HTML 기반 MCP 서버 | *미확인* |
-
-> **`projects/` 폴더는 GitHub 아이디로 만듭니다.** 각자 자기 ppt-mcp 를 통째로
-> 만들고 서로 비교하는 구조라, 기능 이름으로 나누면 이름이 겹칩니다.
-> 자세한 이유는 [CONTRIBUTING.md](CONTRIBUTING.md) 3절.
->
-> 아래 세 개는 아이디 규칙 이전에 만들어진 것이라 이름이 기능 기준입니다.
-> 담당자가 정해지면 아이디 폴더로 옮깁니다.
-> `공용` 은 모두가 참고하는 레퍼런스라 바꾸려면 이슈를 먼저 열어 주세요.
-
-### 어느 걸 쓰면 되나요
-
-- **PPT 를 자연어로 만들고 싶다** → `reference/mcp-server` + `reference/ppt-bridge` 를 설치하고 MCP 클라이언트에 등록하세요. 아래 "설치 및 빌드" 참고.
-- **직접 스크립트로 PPT 를 만들고 싶다** → `reference/ppt-bridge` 만 설치하고 `examples/build_ibm_quantum.py` 를 참고하세요.
-- **HTML 로 슬라이드를 디자인하고 싶다** → `projects/html-render-pptx` / `projects/html-ppt-mcp` (아직 작업 중)
+> `.pptx` 를 **직접 읽고 쓰는** 방식입니다. PowerPoint COM 자동화가 아니므로
+> Windows 나 PowerPoint 설치가 없어도 동작합니다. (열어서 보려면 뷰어는 필요합니다.)
 
 ---
 
@@ -167,7 +199,11 @@ MCP 클라이언트는 임의의 작업 디렉터리에서 서버를 실행하�
 
 ---
 
-## 사용 가능한 Tools
+## 레퍼런스 구현의 Tools
+
+> `reference/` 구현이 노출하는 tool 입니다. 여러분의 프로젝트는 다른 tool 을
+> 노출해도 됩니다 — 오히려 그게 비교할 거리가 됩니다.
+
 
 | Tool | 설명 |
 |------|------|
