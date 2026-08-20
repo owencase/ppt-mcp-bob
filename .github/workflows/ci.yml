@@ -116,7 +116,7 @@ jobs:
       # 대조합니다. 그래서 이 잡에도 파이썬 의존성이 필요합니다.
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: '3.11'
 
       - name: 브릿지 의존성 설치 (계약 테스트용)
         run: pip install -r packages/ppt-bridge/requirements.txt
@@ -161,28 +161,63 @@ jobs:
           echo "Node 패키지 $found 개 검사 완료"
           exit $failed
 
-  # ── 3. Python 브릿지: 의존성 + 테스트 ────────────────────────────────────
+  # ── 3. Python 패키지: 의존성 + 테스트 ────────────────────────────────────
   python:
-    name: Python 브릿지 테스트
+    name: Python 패키지 테스트
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.10'   # README 가 약속한 최소 버전으로 검사합니다
+          # 레퍼런스 구현은 3.10 이상이면 되지만, 패키지마다 pyproject.toml 에
+          # 더 높은 버전을 요구할 수 있습니다 (예: packages/inwon 은 3.11+).
+          # 전부를 만족하는 버전 하나로 검사합니다.
+          python-version: '3.11'
 
-      - name: 의존성 설치
-        working-directory: packages/ppt-bridge
+      - name: packages/* 에서 파이썬 패키지를 찾아 각각 설치·테스트
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install -r requirements-dev.txt
+          set -u
+          failed=0
+          found=0
 
-      - name: import 확인
-        # 여기서 깨지면 requirements.txt 가 실제로 필요한 걸 다 안 적은 겁니다.
-        run: python -c "import pptx; print('python-pptx', pptx.__version__)"
+          for pkg in packages/*/; do
+            # requirements.txt 나 pyproject.toml 이 있으면 파이썬 패키지로 봅니다.
+            if [ ! -f "$pkg/requirements.txt" ] && [ ! -f "$pkg/pyproject.toml" ]; then
+              continue
+            fi
+            found=$((found + 1))
+            name=$(basename "$pkg")
+            echo ""
+            echo "═══ $name ═══"
 
-      - name: 테스트
-        working-directory: packages/ppt-bridge
-        run: python -m pytest tests -v
+            python -m pip install --quiet --upgrade pip
+
+            if [ -f "$pkg/requirements.txt" ]; then
+              pip install -r "$pkg/requirements.txt" \
+                || { echo "::error::$name: requirements.txt 설치 실패"; failed=1; continue; }
+            fi
+            if [ -f "$pkg/requirements-dev.txt" ]; then
+              pip install -r "$pkg/requirements-dev.txt" \
+                || { echo "::error::$name: requirements-dev.txt 설치 실패"; failed=1; continue; }
+            fi
+            if [ -f "$pkg/pyproject.toml" ]; then
+              # 프로젝트 자체를 설치해 봅니다. 여기서 깨지면 다른 사람은
+              # 이 패키지를 설치조차 못 합니다.
+              pip install -e "$pkg" \
+                || { echo "::error::$name: pip install -e 실패"; failed=1; continue; }
+            fi
+
+            # tests/ 가 있으면 pytest 를 돌립니다. 없으면 경고만.
+            if [ -d "$pkg/tests" ]; then
+              pip install --quiet pytest
+              ( cd "$pkg" && python -m pytest tests -v ) \
+                || { echo "::error::$name: 테스트 실패"; failed=1; }
+            else
+              echo "::warning::$name: tests/ 디렉터리가 없습니다. 테스트를 추가해 주세요."
+            fi
+          done
+
+          echo ""
+          echo "Python 패키지 $found 개 검사 완료"
+          exit $failed
