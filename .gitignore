@@ -22,6 +22,12 @@ env/
 *.pptx
 *.ppt
 *.pptm
+# PowerPoint 테마 / 템플릿 원본도 바이너리입니다. 실제로 490KB짜리 .thmx 가
+# 커밋된 적이 있습니다. 메타데이터 .json 만 커밋하세요
+# (packages/design-library/README.md 참고).
+*.thmx
+*.potx
+*.pot
 output/
 # 템플릿 .pptx 를 정말 커밋해야 한다면 `git add -f` 로 명시적으로 추가하세요.
 # (개당 수 MB짜리 바이너리라 히스토리에 영구히 남습니다 — 리뷰 후 결정)

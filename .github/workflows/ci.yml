@@ -32,14 +32,14 @@ jobs:
 
       - name: 금지된 파일이 추적되고 있는지 확인
         run: |
-          echo "추적 중인 파일에서 node_modules/, build/, dist/, .pptx 를 찾습니다."
+          echo "추적 중인 파일에서 node_modules/, build/, dist/, .pptx, .thmx 를 찾습니다."
           # git ls-files = 실제로 레포에 커밋된 파일 목록. .gitignore 와 무관하게
           # 이미 추적 중인 파일은 여기 잡힙니다.
           #
           # core.quotePath=false 가 반드시 필요합니다. 기본값이면 git 이 한글 경로를
           # "\352\262\260..." 처럼 이스케이프해서 출력하는데, 그러면 끝이 따옴표가 되어
           # '\.pptx$' 같은 패턴이 빗나갑니다. 즉 '한글이름.pptx' 가 그냥 통과합니다.
-          offenders=$(git -c core.quotePath=false ls-files | grep -E '(^|/)(node_modules|build|dist)/|\.(pptx|ppt|pptm)$' || true)
+          offenders=$(git -c core.quotePath=false ls-files | grep -E '(^|/)(node_modules|build|dist)/|\.(pptx|ppt|pptm|thmx|potx|pot)$' || true)
           if [ -n "$offenders" ]; then
             echo "::error::커밋하면 안 되는 파일이 레포에 들어와 있습니다."
             echo "$offenders" | sed 's/^/  /'
