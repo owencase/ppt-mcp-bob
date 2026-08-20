@@ -58,21 +58,22 @@ ppt-mcp-bob/
 각 패키지는 **독립적으로 설치·실행**됩니다. 하나를 쓰려고 전체를 설치할 필요는 없습니다.
 자세한 사용법은 각 패키지의 `README.md` 를 보세요.
 
-| 패키지 | 하는 일 | 담당 | 설치 · 실행 | 상태 |
-|---|---|---|---|---|
-| `packages/mcp-server` | MCP 서버. tool 9종을 LLM 클라이언트에 노출 | (레퍼런스) | `npm ci && npm run build` | `main` |
-| `packages/ppt-bridge` | python-pptx 로 `.pptx` 를 직접 조작 | (레퍼런스) | `pip install -r requirements.txt` | `main` |
-| `packages/design-library` | PPT 템플릿·테마 메타데이터 | `@github-id` | — | `feat/bridge-extended` 작업 중 |
-| `packages/html-render-pptx` | HTML/CSS 렌더링 → PPTX 내보내기 | `@github-id` | `npm install && npm test` | `feat/html-render-pptx` 작업 중 |
-| `packages/html-ppt-mcp` | HTML 기반 프레젠테이션 생성 MCP 서버 | `@github-id` | `npm install && npm run build` | `feat/html-ppt-mcp` 작업 중 |
+| 패키지 | 하는 일 | 담당 |
+|---|---|---|
+| `packages/mcp-server` | 레퍼런스 MCP 서버 (TypeScript) | 공용 |
+| `packages/ppt-bridge` | 레퍼런스 브릿지 (Python · python-pptx) | 공용 |
+| `packages/SeoJHeasdw` | ppt-mcp — 의도 높이의 tool + resources/prompts | `@SeoJHeasdw` |
+| `packages/design-library` | 템플릿·테마 메타데이터 | *미확인* |
+| `packages/html-render-pptx` | HTML/CSS → PPTX | *미확인* |
+| `packages/html-ppt-mcp` | HTML 기반 MCP 서버 | *미확인* |
 
-> 작업 중인 패키지는 해당 브랜치에만 있습니다. `main` 에 머지되면 상태가 `main` 으로 바뀝니다.
+> **폴더는 GitHub 아이디로 만듭니다** (`packages/<아이디>/`). 각자 자기 ppt-mcp 를
+> 통째로 만들고 서로 비교하는 구조라, 기능 이름으로 나누면 겹칩니다.
+> 자세한 이유는 [CONTRIBUTING.md](CONTRIBUTING.md) 3절.
 >
-> **담당** 은 그 패키지를 만든 사람입니다. 이 표는 멘토가 관리합니다.
-> `(레퍼런스)` 는 모두가 참고하는 공용 구현이라 바꾸려면 이슈를 먼저 열어 주세요.
-
-> 비슷한 걸 두 사람이 각자 만드는 것은 **문제가 아닙니다.** 접근이 다르면 비교해서
-> 배울 게 생깁니다. 다만 남의 패키지를 지우거나 덮어쓰지는 마세요 (CONTRIBUTING.md 4절).
+> 위 세 개(`design-library` / `html-*`)는 아이디 규칙 이전에 만들어진 것이라
+> 이름이 기능 기준입니다. 담당자가 정해지면 그때 정리합니다.
+> `(공용)` 은 모두가 참고하는 레퍼런스라 바꾸려면 이슈를 먼저 열어 주세요.
 
 ### 어느 걸 쓰면 되나요
 
