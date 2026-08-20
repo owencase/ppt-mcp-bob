@@ -1,7 +1,7 @@
 # ppt-bridge
 
 python-pptx 로 `.pptx` 파일을 직접 읽고 쓰는 브릿지.
-`packages/mcp-server` 가 tool 호출마다 이 스크립트를 프로세스로 띄웁니다.
+`reference/mcp-server` 가 tool 호출마다 이 스크립트를 프로세스로 띄웁니다.
 
 ## 프로토콜
 
@@ -45,7 +45,7 @@ HANDLERS = {
 }
 ```
 
-3. `packages/mcp-server/src/index.ts` 에 대응하는 tool 을 등록합니다.
+3. `reference/mcp-server/src/index.ts` 에 대응하는 tool 을 등록합니다.
    여기까지 해야 LLM 클라이언트에서 보입니다.
 
 ## 규칙

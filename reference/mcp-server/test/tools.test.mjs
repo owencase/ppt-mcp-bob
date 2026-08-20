@@ -2,7 +2,7 @@
  * mcp-server 테스트.
  *
  * 실행:
- *   cd packages/mcp-server
+ *   cd reference/mcp-server
  *   npm test            # pretest 로 빌드가 먼저 돕니다
  *
  * MCP SDK 의 진짜 Client 로 진짜 서버 프로세스에 붙습니다. LLM 클라이언트가
@@ -104,7 +104,7 @@ describe("브릿지 계약", () => {
     } catch {
       const hint =
         `브릿지를 실행할 수 없습니다 (python: ${python}).\n` +
-        `  cd packages/ppt-bridge && python3 -m venv .venv && .venv/bin/pip install -r requirements.txt\n` +
+        `  cd reference/ppt-bridge && python3 -m venv .venv && .venv/bin/pip install -r requirements.txt\n` +
         `  stderr: ${(probe.stderr ?? "").trim().split("\n").slice(-3).join("\n  ")}`;
       // CI 에서는 건너뛰면 안 됩니다. 로컬에서는 파이썬 준비가 안 됐을 수 있으니 skip.
       if (process.env.CI) assert.fail(hint);

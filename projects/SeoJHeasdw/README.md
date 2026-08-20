@@ -12,7 +12,7 @@
 MCP tool 은 *라이브러리가 할 수 있는 것* 이 아니라 *모델이 하려는 것* 의
 높이에 맞춰야 합니다.
 
-레퍼런스 구현(`packages/mcp-server`)은 python-pptx 의 API 를 거의 그대로
+레퍼런스 구현(`reference/mcp-server`)은 python-pptx 의 API 를 거의 그대로
 노출합니다.
 
 ```
@@ -149,7 +149,7 @@ tests/          layout · spec · render · server(계약)
 ## 설치 · 실행
 
 ```bash
-cd packages/SeoJHeasdw
+cd projects/SeoJHeasdw
 python3 -m venv .venv
 .venv/bin/pip install -e '.[dev]'
 .venv/bin/python -m pytest tests -v
@@ -165,7 +165,7 @@ MCP 클라이언트 등록:
 {
   "mcpServers": {
     "ppt-mcp-seojh": {
-      "command": "/ABSOLUTE/PATH/TO/packages/SeoJHeasdw/.venv/bin/ppt-mcp-seojh",
+      "command": "/ABSOLUTE/PATH/TO/projects/SeoJHeasdw/.venv/bin/ppt-mcp-seojh",
       "env": { "PPT_MCP_OUTPUT_DIR": "/ABSOLUTE/PATH/TO/decks" }
     }
   }
@@ -178,7 +178,7 @@ MCP 클라이언트 등록:
 
 의도적으로 뺐습니다. 작고 읽을 수 있는 상태를 유지하는 게 이 패키지의 목적입니다.
 
-- 이미지 삽입 — 넣는다면 SSRF 방어가 먼저입니다 (`packages/inwon` 의
+- 이미지 삽입 — 넣는다면 SSRF 방어가 먼저입니다 (`projects/inwon` 의
   `_public_image_url` 이 좋은 예시입니다)
 - 기존 템플릿 편집 — 완전히 다른 문제입니다
 - 임의 도형 배치 — 이걸 넣는 순간 1절의 주장이 무너집니다

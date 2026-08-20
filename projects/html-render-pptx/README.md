@@ -5,7 +5,7 @@ HTML/CSS로 슬라이드를 렌더링해 PPTX로 내보내는 MCP 서버.
 ## 실행
 
 ```bash
-cd packages/html-render-pptx
+cd projects/html-render-pptx
 npm install
 npm test
 ```
@@ -20,7 +20,7 @@ test/            node --test 로 실행
 ```
 
 `npm start` 는 `src/server.mjs` 를 실행합니다. 아직 그 파일이 없어서 지금은
-실패합니다. `packages/mcp-server/src/index.ts` 의 부팅 부분을 참고하세요.
+실패합니다. `reference/mcp-server/src/index.ts` 의 부팅 부분을 참고하세요.
 
 ## 규칙
 

@@ -14,7 +14,7 @@ REPO_ROOT   = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PYTHON_BIN  = os.environ.get("PYTHON_BIN", sys.executable)
 BRIDGE      = os.environ.get(
     "BRIDGE_SCRIPT",
-    os.path.join(REPO_ROOT, "packages", "ppt-bridge", "bridge.py"),
+    os.path.join(REPO_ROOT, "reference", "ppt-bridge", "bridge.py"),
 )
 FILE        = "IBM_Quantum.pptx"
 

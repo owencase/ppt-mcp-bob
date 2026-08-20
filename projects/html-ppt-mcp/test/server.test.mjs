@@ -2,11 +2,11 @@
  * html-ppt-mcp 테스트.
  *
  * 실행:
- *   cd packages/html-ppt-mcp
+ *   cd projects/html-ppt-mcp
  *   npm test            # pretest 로 빌드가 먼저 돕니다
  *
  * 지금은 최소 두 개만 있습니다. tool 을 추가하면 여기에도 추가해 주세요.
- * 레퍼런스 예시: packages/mcp-server/test/tools.test.mjs
+ * 레퍼런스 예시: reference/mcp-server/test/tools.test.mjs
  */
 import { test, describe, before, after } from "node:test";
 import assert from "node:assert/strict";
