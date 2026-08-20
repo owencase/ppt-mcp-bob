@@ -1,0 +1,8 @@
+{
+  "name": "back-to-school",
+  "kind": "template",
+  "source": "TODO: 원본 .pptx 를 어디서 받는지 적어주세요",
+  "slide_size": "16:9",
+  "palette": { "bg": "FFF7ED", "text": "1C1917", "accent": "F97316" },
+  "tags": ["education", "bright"]
+}
