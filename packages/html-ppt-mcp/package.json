@@ -1,0 +1,24 @@
+{
+  "name": "html-ppt-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "HTML 기반 PowerPoint 프레젠테이션을 생성하는 MCP 서버",
+  "main": "build/index.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "start": "node build/index.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.21",
+    "typescript": "^5.8.3"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
