@@ -59,6 +59,23 @@ HANDLERS = {
 ## 설치
 
 ```bash
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt -r requirements-dev.txt
+```
+
+`source activate` 를 쓰지 않고 `.venv/bin/` 을 직접 부르는 이유가 있습니다.
+MCP 클라이언트는 venv 가 활성화되지 않은 상태로 서버를 띄웁니다. 그래서
+`PYTHON_BIN` 에도 이 venv 안의 python 을 **절대경로로** 지정해야 합니다.
+습관을 처음부터 맞춰 두는 게 낫습니다 (루트 README 의 "환경변수" 참고).
+
+## 테스트
+
+```bash
+.venv/bin/python -m pytest tests -v
+```
+
+프로토콜을 직접 만져보려면 최소 예제가 옆에 있습니다.
+
+```bash
+.venv/bin/python example_deck.py
 ```
