@@ -4,7 +4,7 @@
       "command": "node",
       "args": ["/ABSOLUTE/PATH/TO/ppt-mcp-bob/packages/mcp-server/build/index.js"],
       "env": {
-        "PYTHON_BIN": "python3"
+        "PYTHON_BIN": "/ABSOLUTE/PATH/TO/ppt-mcp-bob/packages/ppt-bridge/.venv/bin/python"
       }
     }
   }

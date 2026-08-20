@@ -101,10 +101,43 @@ main과 병합이 사실상 불가능해집니다.
 ## 5. 올리기 전 체크리스트
 
 ```bash
-cd packages/mcp-server && npm ci && npm run build   # 빌드 통과
-git status                                          # 의도한 파일만 있는지
+cd packages/ppt-bridge && .venv/bin/python -m pytest tests   # 브릿지 테스트
+cd packages/mcp-server && npm ci && npm test                 # 빌드 + 테스트
+git status                                                   # 의도한 파일만 있는지
 ```
 
 - [ ] `node_modules/`, `build/`, `.pptx` 가 목록에 없다
 - [ ] 커밋 메시지가 무엇을 왜 바꿨는지 말해 준다
 - [ ] `main`이 아니라 작업 브랜치에 있다
+
+---
+
+## 6. CI
+
+PR 을 열면 [.github/workflows/ci.yml](.github/workflows/ci.yml) 이 자동으로 돕니다.
+
+| 검사 | 하는 일 |
+|------|---------|
+| 커밋 위생 | `node_modules/`, `build/`, `.pptx` 가 추적되는지 / 루트에 소스가 흩어졌는지 / 파일 삭제가 있는지 |
+| Node 패키지 | `packages/*` 를 훑어서 있는 것마다 빌드·테스트 |
+| Python 브릿지 | 의존성 설치 + `pytest` |
+
+빨간불이 뜨면 **Actions 탭의 Summary** 를 먼저 보세요. 무엇이 왜 걸렸고
+어떻게 고치는지 적혀 있습니다. 사람한테 물어보기 전에 거기부터 읽으면 대부분 풀립니다.
+
+새 패키지를 만들면 CI 를 고칠 필요 없습니다. `package.json` 에 `build` / `test`
+스크립트만 넣어 두면 알아서 실행됩니다. **테스트가 없으면 경고가 뜹니다** —
+빌드는 통과시켜 주지만, 리뷰에서 물어볼 겁니다.
+
+---
+
+## 7. 테스트를 어떻게 쓰나요
+
+레퍼런스 구현에 예시가 있습니다. 새로 짤 때 이걸 보고 따라 하면 됩니다.
+
+- [packages/ppt-bridge/tests/test_bridge.py](packages/ppt-bridge/tests/test_bridge.py) — 순수 함수 / 프로토콜 계약 / 실제 동작
+- [packages/mcp-server/test/tools.test.mjs](packages/mcp-server/test/tools.test.mjs) — 진짜 MCP 클라이언트로 서버에 붙어서 tool 확인
+
+각 테스트마다 **왜 이 테스트가 있는지** 주석을 달아 뒀습니다. 테스트를 추가할 때도
+같이 적어 주세요. 3개월 뒤에 그 테스트가 깨졌을 때, 고쳐야 할지 지워야 할지를
+판단할 수 있는 건 그 주석뿐입니다.

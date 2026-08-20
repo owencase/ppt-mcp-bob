@@ -7,6 +7,11 @@ Protocol
 --------
 stdin  → single JSON line: {"action": "<name>", "params": {...}}
 stdout → single JSON line: {"success": true/false, "message": "...", "data": {...}}
+stderr → 사람이 읽는 로그 전용
+
+stdout 은 프로토콜 전용입니다. 핸들러가 도는 동안에는 stdout 이 버퍼로
+바꿔치기되므로, 디버깅용 print() 를 남겨도 응답 JSON 이 깨지지 않습니다.
+그 출력은 stderr 로 옮겨져서 그대로 볼 수 있습니다 (main() 참고).
 
 All measurements that arrive from the MCP server are in centimetres.
 python-pptx works in EMUs (1 cm = 360_000 EMU), so we convert internally.
@@ -22,10 +27,6 @@ import io
 import json
 import sys
 from typing import Any
-
-# Windows에서 stdout/stdin을 UTF-8로 강제 설정
-sys.stdin  = io.TextIOWrapper(sys.stdin.buffer,  encoding="utf-8", errors="replace")
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 
 # ── python-pptx imports ────────────────────────────────────────────────────
 from pptx import Presentation
@@ -68,8 +69,11 @@ def ok(message: str = "OK", data: Any = None) -> dict:
     return result
 
 
-def err(message: str) -> dict:
-    return {"success": False, "error": message}
+def err(message: str, data: Any = None) -> dict:
+    result: dict[str, Any] = {"success": False, "error": message}
+    if data is not None:
+        result["data"] = data
+    return result
 
 
 def load_prs(file_path: str) -> Presentation:
@@ -282,28 +286,81 @@ HANDLERS = {
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
-def main() -> None:
-    raw = sys.stdin.read().strip()
+
+def dispatch(raw: str) -> dict:
+    """요청 JSON 문자열 하나를 받아 응답 dict 를 돌려줍니다.
+
+    프로세스나 stdout 을 건드리지 않는 순수 함수라서 테스트에서 바로 부를 수
+    있습니다. 실제 I/O 는 main() 이 담당합니다.
+    """
     try:
         request = json.loads(raw)
     except json.JSONDecodeError as exc:
-        print(json.dumps(err(f"Invalid JSON input: {exc}")))
-        return
+        return err(f"Invalid JSON input: {exc}")
+
+    if not isinstance(request, dict):
+        return err("Request must be a JSON object")
 
     action: str = request.get("action", "")
     params: dict = request.get("params", {})
 
     handler = HANDLERS.get(action)
     if handler is None:
-        print(json.dumps(err(f"Unknown action '{action}'. Available: {list(HANDLERS.keys())}")))
-        return
+        available = sorted(HANDLERS)
+        # available 을 data 에도 실어 둡니다. 사람이 읽는 메시지와 별개로
+        # 기계가 읽을 수 있어야, mcp-server 의 tool 목록과 어긋났는지
+        # 테스트가 자동으로 잡아낼 수 있습니다 (mcp-server/test 참고).
+        return err(f"Unknown action '{action}'. Available: {available}", {"available": available})
 
     try:
-        result = handler(params)
+        return handler(params)
+    except KeyError as exc:
+        # 필수 파라미터 누락. 무엇이 빠졌는지 이름을 그대로 알려줍니다.
+        return err(f"Missing required parameter in '{action}': {exc}")
     except Exception as exc:  # noqa: BLE001
-        result = err(f"Unhandled exception in '{action}': {type(exc).__name__}: {exc}")
+        return err(f"Unhandled exception in '{action}': {type(exc).__name__}: {exc}")
 
-    print(json.dumps(result))
+
+def as_utf8(stream):
+    """콘솔 인코딩이 UTF-8 이 아닌 환경(주로 Windows)을 위해 스트림을 감쌉니다.
+
+    버퍼가 없는 스트림(테스트에서 넘기는 StringIO 등)은 그대로 돌려줍니다.
+    """
+    buffer = getattr(stream, "buffer", None)
+    if buffer is None:
+        return stream
+    return io.TextIOWrapper(buffer, encoding="utf-8", errors="replace")
+
+
+def main() -> None:
+    # 인코딩 강제는 여기서 합니다. import 시점에 전역 sys.stdin/stdout 을 바꾸면
+    # 모듈을 import 하는 것만으로 부작용이 생겨 테스트에서 쓸 수 없게 됩니다.
+    sys.stdin = as_utf8(sys.stdin)
+    sys.stdout = as_utf8(sys.stdout)
+
+    raw = sys.stdin.read().strip()
+
+    # stdout 은 프로토콜 전용입니다. 핸들러가 도는 동안에는 진짜 stdout 을
+    # 치워두고 버퍼로 바꿔칩니다. 그래야 누군가 디버깅용 print() 를 남겨도
+    # 응답 JSON 한 줄이 오염되지 않습니다.
+    real_stdout = sys.stdout
+    buffer = io.StringIO()
+    sys.stdout = buffer
+    try:
+        response = dispatch(raw)
+    finally:
+        sys.stdout = real_stdout
+        stray = buffer.getvalue()
+        if stray:
+            # 삼키지 않고 stderr 로 흘려보냅니다. print() 로 디버깅하던 사람이
+            # 출력을 그대로 볼 수 있어야 하니까요.
+            print("[bridge] stdout 으로 나간 출력을 stderr 로 옮겼습니다:", file=sys.stderr)
+            print(stray, end="" if stray.endswith("\n") else "\n", file=sys.stderr)
+
+    # ensure_ascii 기본값(True)을 유지합니다. 출력이 순수 ASCII 가 되어
+    # 콘솔 인코딩이 무엇이든 깨지지 않습니다.
+    real_stdout.write(json.dumps(response) + "\n")
+    real_stdout.flush()
 
 
 if __name__ == "__main__":
