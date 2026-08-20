@@ -12,7 +12,7 @@
 git checkout feat/내-브랜치      # 본인 브랜치는 이미 만들어져 있습니다
 git pull
 
-# ... 자기 패키지(packages/<이름>/) 안에서 작업 ...
+# ... 자기 프로젝트(projects/<내-아이디>/) 안에서 작업 ...
 
 git add .
 git commit -m "feat: 무엇을 왜 바꿨는지"
@@ -23,7 +23,7 @@ git push
 
 - PR 을 열면 CI 가 자동으로 검사합니다. **초록불이면 끝입니다.**
 - 빨간불이면 Actions 탭 Summary 에 고치는 방법이 적혀 있습니다. 그대로 하면 됩니다.
-- `main` 을 직접 건드리거나 남의 `packages/` 를 고칠 일은 없습니다.
+- `main` 을 직접 건드리거나 남의 `projects/` 를 고칠 일은 없습니다.
 
 작업은 **자기 패키지 안에서만** 하면 됩니다. 그러면 남과 부딪힐 일이 없어서
 충돌을 해결할 필요도 없습니다.
@@ -63,10 +63,11 @@ git rm -r --cached node_modules
 ```
 config/      MCP 클라이언트 등록 설정
 examples/    실행 가능한 예시 스크립트 (일회성 데모는 여기로)
-packages/    독립적으로 설치·빌드되는 컴포넌트
+reference/   공용 레퍼런스 구현 (모두가 읽는 것)
+projects/    각자의 ppt-mcp — 폴더명은 자기 GitHub 아이디
 ```
 
-새 컴포넌트는 `packages/<이름>/` 아래에 만듭니다.
+내 작업은 `projects/<내-GitHub-아이디>/` 아래에 만듭니다.
 **레포 루트에 소스 파일을 직접 두지 마세요.**
 
 ---
@@ -106,13 +107,22 @@ docs/readme-setup       문서
 
 ### 그럼 내 영역은 어디인가요
 
-**`packages/<내-GitHub-아이디>/` 가 여러분의 영역입니다.**
+**`projects/<내-GitHub-아이디>/` 가 여러분의 영역입니다.**
 
 ```
-packages/baekinwon-0102/     ← inwon 의 ppt-mcp
-packages/kunwoo1016/         ← kunwoo 의 ppt-mcp
-packages/SeoJHeasdw/         ← 멘토의 ppt-mcp
+reference/                   공용 — 모두가 읽는 레퍼런스 구현
+├── mcp-server/
+└── ppt-bridge/
+
+projects/                    사람별 — 각자의 ppt-mcp
+├── baekinwon-0102/
+├── kunwoo1016/
+└── SeoJHeasdw/
 ```
+
+디렉터리가 둘로 나뉜 이유는 성격이 다르기 때문입니다. `reference/` 는 **읽는
+것**이고 `projects/` 는 **만드는 것**입니다. 한 바구니에 섞여 있으면 처음 온
+사람이 무엇부터 봐야 할지 모릅니다.
 
 이 레포는 **각자 자기 ppt-mcp 를 통째로 만드는** 구조입니다. 서로의 구현을
 보면서 비교하고 이야기하다가 더 나은 방향을 찾는 게 목적입니다. 그래서 폴더는
@@ -127,7 +137,7 @@ packages/SeoJHeasdw/         ← 멘토의 ppt-mcp
 영원히 안 만납니다.
 
 - 내 패키지 안에서는 마음대로 해도 됩니다. 갈아엎어도 남에게 영향이 없습니다.
-- 남의 패키지와 `packages/mcp-server` · `packages/ppt-bridge`(레퍼런스)는
+- 남의 프로젝트와 `reference/` 아래(레퍼런스)는
   이슈를 먼저 열어 주세요.
 - **비슷한 걸 두 사람이 각자 만드는 것은 문제가 아닙니다.** 접근이 다르면
   비교해서 배울 게 생깁니다. 합치라고 요구하지 않습니다.
@@ -169,7 +179,7 @@ chore: node_modules 추적 해제 및 .gitignore 추가
 main과 병합이 사실상 불가능해집니다.
 
 방향 전환이 필요하면 먼저 이슈나 PR에서 이야기해 주세요.
-기존 컴포넌트를 대체하는 거라면, 지우는 게 아니라 `packages/` 아래에 **새 컴포넌트로 추가**하고
+기존 컴포넌트를 대체하는 거라면, 지우는 게 아니라 `projects/` 아래에 **새로 추가**하고
 동작을 확인한 뒤 정리하는 순서로 갑니다.
 
 ---
@@ -177,8 +187,8 @@ main과 병합이 사실상 불가능해집니다.
 ## 5. 올리기 전 체크리스트
 
 ```bash
-cd packages/ppt-bridge && .venv/bin/python -m pytest tests   # 브릿지 테스트
-cd packages/mcp-server && npm ci && npm test                 # 빌드 + 테스트
+cd reference/ppt-bridge && .venv/bin/python -m pytest tests   # 브릿지 테스트
+cd reference/mcp-server && npm ci && npm test                 # 빌드 + 테스트
 git status                                                   # 의도한 파일만 있는지
 ```
 
@@ -195,13 +205,13 @@ PR 을 열면 [.github/workflows/ci.yml](.github/workflows/ci.yml) 이 자동으
 | 검사 | 하는 일 |
 |------|---------|
 | 커밋 위생 | `node_modules/`, `build/`, `.pptx` 가 추적되는지 / 루트에 소스가 흩어졌는지 / 파일 삭제가 있는지 |
-| Node 패키지 | `packages/*` 를 훑어서 있는 것마다 빌드·테스트 |
+| Node 패키지 | `reference/*` · `projects/*` 를 훑어서 있는 것마다 빌드·테스트 |
 | Python 브릿지 | 의존성 설치 + `pytest` |
 
 빨간불이 뜨면 **Actions 탭의 Summary** 를 먼저 보세요. 무엇이 왜 걸렸고
 어떻게 고치는지 적혀 있습니다. 사람한테 물어보기 전에 거기부터 읽으면 대부분 풀립니다.
 
-새 패키지를 만들면 CI 를 고칠 필요 없습니다. `package.json` 에 `build` / `test`
+새 프로젝트를 만들면 CI 를 고칠 필요 없습니다. `package.json` 에 `build` / `test`
 스크립트만 넣어 두면 알아서 실행됩니다. **테스트가 없으면 경고가 뜹니다** —
 빌드는 통과시켜 주지만, 리뷰에서 물어볼 겁니다.
 
@@ -211,8 +221,8 @@ PR 을 열면 [.github/workflows/ci.yml](.github/workflows/ci.yml) 이 자동으
 
 레퍼런스 구현에 예시가 있습니다. 새로 짤 때 이걸 보고 따라 하면 됩니다.
 
-- [packages/ppt-bridge/tests/test_bridge.py](packages/ppt-bridge/tests/test_bridge.py) — 순수 함수 / 프로토콜 계약 / 실제 동작
-- [packages/mcp-server/test/tools.test.mjs](packages/mcp-server/test/tools.test.mjs) — 진짜 MCP 클라이언트로 서버에 붙어서 tool 확인
+- [reference/ppt-bridge/tests/test_bridge.py](reference/ppt-bridge/tests/test_bridge.py) — 순수 함수 / 프로토콜 계약 / 실제 동작
+- [reference/mcp-server/test/tools.test.mjs](reference/mcp-server/test/tools.test.mjs) — 진짜 MCP 클라이언트로 서버에 붙어서 tool 확인
 
 각 테스트마다 **왜 이 테스트가 있는지** 주석을 달아 뒀습니다. 테스트를 추가할 때도
 같이 적어 주세요. 3개월 뒤에 그 테스트가 깨졌을 때, 고쳐야 할지 지워야 할지를

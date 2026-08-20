@@ -1,7 +1,7 @@
 """테마 팔레트.
 
 색은 레포 규약대로 '#' 없는 RRGGBB 문자열입니다.
-레퍼런스 구현(packages/ppt-bridge)과 같은 이름·같은 값을 씁니다. 학생끼리
+레퍼런스 구현(reference/ppt-bridge)과 같은 이름·같은 값을 씁니다. 학생끼리
 결과물을 비교할 때 테마가 달라서 생기는 잡음을 없애려는 것입니다.
 """
 from __future__ import annotations

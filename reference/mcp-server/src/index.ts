@@ -3,7 +3,7 @@
  * PPT MCP Server
  * Exposes PowerPoint (.pptx) authoring tools to LLM clients via the MCP protocol.
  * The actual file manipulation is delegated to the sibling python-pptx bridge
- * package (packages/ppt-bridge), invoked once per tool call over stdin/stdout JSON.
+ * package (reference/ppt-bridge), invoked once per tool call over stdin/stdout JSON.
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -17,7 +17,7 @@ import { fileURLToPath } from "node:url";
 // Resolve the Python bridge script path
 //
 // This file runs from <package root>/build, so the bridge lives in the sibling
-// package packages/ppt-bridge. Expressing it as "package root -> sibling package"
+// package reference/ppt-bridge. Expressing it as "package root -> sibling package"
 // keeps it correct whether we run the compiled build/ or the sources in src/.
 // BRIDGE_SCRIPT env var overrides resolution (useful for non-ASCII paths).
 // ---------------------------------------------------------------------------

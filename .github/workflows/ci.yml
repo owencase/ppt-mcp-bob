@@ -4,9 +4,9 @@
 # PR 을 열면 자동으로 도는 검사입니다. 사람이 눈으로 하던 CONTRIBUTING.md 의
 # 체크리스트를 기계가 대신 봅니다. 빨간불이 뜨면 아래 메시지를 읽고 고치면 됩니다.
 #
-# packages/ 아래를 훑어서 있는 것만 검사하므로, 새 패키지를 추가해도
-# 이 파일을 고칠 필요가 없습니다. package.json 에 build / test 스크립트를
-# 넣어두면 알아서 실행됩니다.
+# reference/ 와 projects/ 아래를 훑어서 있는 것만 검사하므로, 새 패키지를
+# 추가해도 이 파일을 고칠 필요가 없습니다. package.json 에 build / test
+# 스크립트를 넣어두면 알아서 실행됩니다.
 # ─────────────────────────────────────────────────────────────────────────────
 name: CI
 
@@ -65,12 +65,12 @@ jobs:
 
       - name: 레포 루트에 소스 파일을 두지 않았는지 확인
         run: |
-          # CONTRIBUTING.md 2절: 소스는 packages/ 또는 examples/ 아래에만.
+          # CONTRIBUTING.md 2절: 소스는 reference/ · projects/ · examples/ 아래에만.
           # ':(top,glob)' 의 glob 매직이 중요합니다. 이게 없으면 '*' 가 '/' 까지
-          # 먹어서 packages/ 안의 소스까지 전부 걸립니다.
+          # 먹어서 하위 디렉터리 소스까지 전부 걸립니다.
           stray=$(git -c core.quotePath=false ls-files --full-name -- ':(top,glob)*.ts' ':(top,glob)*.js' ':(top,glob)*.mjs' ':(top,glob)*.py' || true)
           if [ -n "$stray" ]; then
-            echo "::error::레포 루트에 소스 파일이 있습니다. packages/<이름>/ 아래로 옮겨 주세요."
+            echo "::error::레포 루트에 소스 파일이 있습니다. projects/<아이디>/ 아래로 옮겨 주세요."
             echo "$stray" | sed 's/^/  /'
             exit 1
           fi
@@ -94,7 +94,7 @@ jobs:
               echo '```'
               echo ''
               echo '의도한 삭제라면 그대로 진행하세요. 기존 컴포넌트를 **대체**하려는 거라면'
-              echo '지우지 말고 `packages/` 아래에 새로 추가한 뒤 이슈에서 논의해 주세요'
+              echo '지우지 말고 `projects/` 아래에 새로 추가한 뒤 이슈에서 논의해 주세요'
               echo '(CONTRIBUTING.md 4절).'
             } >> "$GITHUB_STEP_SUMMARY"
           else
@@ -119,15 +119,15 @@ jobs:
           python-version: '3.11'
 
       - name: 브릿지 의존성 설치 (계약 테스트용)
-        run: pip install -r packages/ppt-bridge/requirements.txt
+        run: pip install -r reference/ppt-bridge/requirements.txt
 
-      - name: packages/*/package.json 을 찾아서 각각 빌드·테스트
+      - name: reference/* · projects/* 의 package.json 을 찾아 각각 빌드·테스트
         run: |
           set -u
           failed=0
           found=0
 
-          for pkg in packages/*/; do
+          for pkg in reference/*/ projects/*/; do
             [ -f "$pkg/package.json" ] || continue
             found=$((found + 1))
             name=$(basename "$pkg")
@@ -171,17 +171,17 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           # 레퍼런스 구현은 3.10 이상이면 되지만, 패키지마다 pyproject.toml 에
-          # 더 높은 버전을 요구할 수 있습니다 (예: packages/inwon 은 3.11+).
+          # 더 높은 버전을 요구할 수 있습니다 (예: 3.11+ 를 요구하는 패키지).
           # 전부를 만족하는 버전 하나로 검사합니다.
           python-version: '3.11'
 
-      - name: packages/* 에서 파이썬 패키지를 찾아 각각 설치·테스트
+      - name: reference/* · projects/* 에서 파이썬 패키지를 찾아 각각 설치·테스트
         run: |
           set -u
           failed=0
           found=0
 
-          for pkg in packages/*/; do
+          for pkg in reference/*/ projects/*/; do
             # requirements.txt 나 pyproject.toml 이 있으면 파이썬 패키지로 봅니다.
             if [ ! -f "$pkg/requirements.txt" ] && [ ! -f "$pkg/pyproject.toml" ]; then
               continue

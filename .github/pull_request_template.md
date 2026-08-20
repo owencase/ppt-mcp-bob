@@ -7,8 +7,8 @@
 <!-- 실행한 명령과 결과를 붙여 주세요. "됩니다"만으로는 리뷰가 안 됩니다. -->
 
 ```
-cd packages/ppt-bridge && .venv/bin/python -m pytest tests
-cd packages/mcp-server && npm ci && npm test
+cd reference/ppt-bridge && .venv/bin/python -m pytest tests
+cd reference/mcp-server && npm ci && npm test
 ```
 
 ## 체크리스트
@@ -18,7 +18,7 @@ cd packages/mcp-server && npm ci && npm test
 
 - [ ] 테스트를 추가했거나, 왜 없어도 되는지 아래에 적었습니다
 - [ ] 기존 파일/디렉터리를 **삭제하지 않았습니다**
-      (대체가 목적이라면 지우지 말고 `packages/` 아래에 새로 추가한 뒤 이슈에서 논의)
+      (대체가 목적이라면 지우지 말고 `projects/` 아래에 새로 추가한 뒤 이슈에서 논의)
 - [ ] GitHub 웹 UI 업로드가 아니라 `git push` 로 올렸습니다
       (웹 업로드는 실행 권한이 날아가서 받는 사람 빌드가 깨집니다)
 - [ ] 커밋 메시지가 무엇을 왜 바꿨는지 말해 줍니다

@@ -10,10 +10,10 @@
 LLM Client (Claude / Copilot / ChatGPT)
         │  MCP Protocol (stdio JSON-RPC)
         ▼
-packages/mcp-server    ← TypeScript / Node.js · Tool 정의
+reference/mcp-server   ← TypeScript / Node.js · Tool 정의
         │  stdin/stdout JSON (1 tool call = 1 프로세스)
         ▼
-packages/ppt-bridge    ← Python / python-pptx · 실제 파일 조작
+reference/ppt-bridge   ← Python / python-pptx · 실제 파일 조작
         │  파일 I/O
         ▼
 .pptx 파일
@@ -29,26 +29,25 @@ packages/ppt-bridge    ← Python / python-pptx · 실제 파일 조작
 ```
 ppt-mcp-bob/
 ├── .github/
-│   ├── workflows/ci.yml          # PR 마다 도는 자동 검사
+│   ├── workflows/ci.yml      # PR 마다 도는 자동 검사
+│   ├── CODEOWNERS
 │   └── pull_request_template.md
-├── config/
-│   └── mcp.json                  # MCP 클라이언트 등록 설정 (샘플)
-├── examples/
-│   └── build_ibm_quantum.py      # 브릿지 직접 호출 예시 스크립트
-└── packages/
-    ├── mcp-server/               # Node.js MCP 서버
-    │   ├── src/index.ts          # 모든 Tool 정의
-    │   ├── test/tools.test.mjs   # tool 노출 + 브릿지 계약 테스트
-    │   ├── package.json
-    │   └── tsconfig.json
-    └── ppt-bridge/               # Python 브릿지
-        ├── bridge.py             # python-pptx 기반 액션 핸들러
-        ├── tests/test_bridge.py  # 프로토콜 · 액션 테스트
-        ├── requirements.txt
-        └── requirements-dev.txt  # pytest (테스트용)
+├── config/mcp.json           # MCP 클라이언트 등록 설정 (샘플)
+├── examples/                 # 실행 가능한 예시 스크립트
+│
+├── reference/                # ← 공용. 모두가 읽는 레퍼런스 구현
+│   ├── mcp-server/           #   TypeScript MCP 서버
+│   └── ppt-bridge/           #   Python 브릿지 (python-pptx)
+│
+└── projects/                 # ← 사람별. 폴더명 = GitHub 아이디
+    ├── SeoJHeasdw/           #   멘토의 ppt-mcp
+    ├── design-library/       #   (담당 확인 대기)
+    ├── html-ppt-mcp/         #   (담당 확인 대기)
+    └── html-render-pptx/     #   (담당 확인 대기)
 ```
 
-새 컴포넌트를 추가할 때는 `packages/<이름>/` 아래에 만들어 주세요.
+**`reference/` 는 읽는 것, `projects/` 는 만드는 것입니다.** 성격이 달라서
+디렉터리를 나눴습니다. 내 작업은 `projects/<내-GitHub-아이디>/` 아래에 만듭니다.
 `node_modules/`, `build/`, 생성된 `.pptx` 는 **커밋하지 않습니다** (`.gitignore` 참고).
 
 ---
@@ -58,28 +57,28 @@ ppt-mcp-bob/
 각 패키지는 **독립적으로 설치·실행**됩니다. 하나를 쓰려고 전체를 설치할 필요는 없습니다.
 자세한 사용법은 각 패키지의 `README.md` 를 보세요.
 
-| 패키지 | 하는 일 | 담당 |
+| 경로 | 하는 일 | 담당 |
 |---|---|---|
-| `packages/mcp-server` | 레퍼런스 MCP 서버 (TypeScript) | 공용 |
-| `packages/ppt-bridge` | 레퍼런스 브릿지 (Python · python-pptx) | 공용 |
-| `packages/SeoJHeasdw` | ppt-mcp — 의도 높이의 tool + resources/prompts | `@SeoJHeasdw` |
-| `packages/design-library` | 템플릿·테마 메타데이터 | *미확인* |
-| `packages/html-render-pptx` | HTML/CSS → PPTX | *미확인* |
-| `packages/html-ppt-mcp` | HTML 기반 MCP 서버 | *미확인* |
+| `reference/mcp-server` | 레퍼런스 MCP 서버 (TypeScript) | 공용 |
+| `reference/ppt-bridge` | 레퍼런스 브릿지 (Python · python-pptx) | 공용 |
+| `projects/SeoJHeasdw` | ppt-mcp — 의도 높이의 tool + resources/prompts | `@SeoJHeasdw` |
+| `projects/design-library` | 템플릿·테마 메타데이터 | *미확인* |
+| `projects/html-render-pptx` | HTML/CSS → PPTX | *미확인* |
+| `projects/html-ppt-mcp` | HTML 기반 MCP 서버 | *미확인* |
 
-> **폴더는 GitHub 아이디로 만듭니다** (`packages/<아이디>/`). 각자 자기 ppt-mcp 를
-> 통째로 만들고 서로 비교하는 구조라, 기능 이름으로 나누면 겹칩니다.
+> **`projects/` 폴더는 GitHub 아이디로 만듭니다.** 각자 자기 ppt-mcp 를 통째로
+> 만들고 서로 비교하는 구조라, 기능 이름으로 나누면 이름이 겹칩니다.
 > 자세한 이유는 [CONTRIBUTING.md](CONTRIBUTING.md) 3절.
 >
-> 위 세 개(`design-library` / `html-*`)는 아이디 규칙 이전에 만들어진 것이라
-> 이름이 기능 기준입니다. 담당자가 정해지면 그때 정리합니다.
-> `(공용)` 은 모두가 참고하는 레퍼런스라 바꾸려면 이슈를 먼저 열어 주세요.
+> 아래 세 개는 아이디 규칙 이전에 만들어진 것이라 이름이 기능 기준입니다.
+> 담당자가 정해지면 아이디 폴더로 옮깁니다.
+> `공용` 은 모두가 참고하는 레퍼런스라 바꾸려면 이슈를 먼저 열어 주세요.
 
 ### 어느 걸 쓰면 되나요
 
-- **PPT 를 자연어로 만들고 싶다** → `mcp-server` + `ppt-bridge` 를 설치하고 MCP 클라이언트에 등록하세요. 아래 "설치 및 빌드" 참고.
-- **직접 스크립트로 PPT 를 만들고 싶다** → `ppt-bridge` 만 설치하고 `examples/build_ibm_quantum.py` 를 참고하세요.
-- **HTML 로 슬라이드를 디자인하고 싶다** → `html-render-pptx` / `html-ppt-mcp` (아직 작업 중)
+- **PPT 를 자연어로 만들고 싶다** → `reference/mcp-server` + `reference/ppt-bridge` 를 설치하고 MCP 클라이언트에 등록하세요. 아래 "설치 및 빌드" 참고.
+- **직접 스크립트로 PPT 를 만들고 싶다** → `reference/ppt-bridge` 만 설치하고 `examples/build_ibm_quantum.py` 를 참고하세요.
+- **HTML 로 슬라이드를 디자인하고 싶다** → `projects/html-render-pptx` / `projects/html-ppt-mcp` (아직 작업 중)
 
 ---
 
@@ -100,29 +99,29 @@ ppt-mcp-bob/
 ### 1. Python 의존성 설치
 
 ```bash
-cd packages/ppt-bridge
+cd reference/ppt-bridge
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt -r requirements-dev.txt
 ```
 
-> venv 경로(`packages/ppt-bridge/.venv`)를 그대로 쓰는 걸 권장합니다.
+> venv 경로(`reference/ppt-bridge/.venv`)를 그대로 쓰는 걸 권장합니다.
 > 아래 MCP 설정에서 이 경로를 그대로 가리키게 되어 있습니다.
 
 ### 2. Node.js 의존성 설치 및 빌드
 
 ```bash
-cd packages/mcp-server
+cd reference/mcp-server
 npm ci
 npm run build
 ```
 
-빌드 결과물: `packages/mcp-server/build/index.js`
+빌드 결과물: `reference/mcp-server/build/index.js`
 
 ### 3. 테스트
 
 ```bash
-cd packages/ppt-bridge && .venv/bin/python -m pytest tests -v
-cd packages/mcp-server && npm test
+cd reference/ppt-bridge && .venv/bin/python -m pytest tests -v
+cd reference/mcp-server && npm test
 ```
 
 PR 을 열면 이 검사가 [CI](.github/workflows/ci.yml) 에서 자동으로 돕니다.
@@ -143,9 +142,9 @@ PR 을 열면 이 검사가 [CI](.github/workflows/ci.yml) 에서 자동으로 �
   "mcpServers": {
     "ppt-mcp-server": {
       "command": "node",
-      "args": ["/ABSOLUTE/PATH/TO/ppt-mcp-bob/packages/mcp-server/build/index.js"],
+      "args": ["/ABSOLUTE/PATH/TO/ppt-mcp-bob/reference/mcp-server/build/index.js"],
       "env": {
-        "PYTHON_BIN": "/ABSOLUTE/PATH/TO/ppt-mcp-bob/packages/ppt-bridge/.venv/bin/python"
+        "PYTHON_BIN": "/ABSOLUTE/PATH/TO/ppt-mcp-bob/reference/ppt-bridge/.venv/bin/python"
       }
     }
   }
@@ -164,7 +163,7 @@ MCP 클라이언트는 임의의 작업 디렉터리에서 서버를 실행하�
 | 변수 | 기본값 | 설명 |
 |------|--------|------|
 | `PYTHON_BIN` | `python3` | Python 실행 파일 경로. **venv 안의 python 을 절대경로로 지정하세요.** 기본값은 venv 를 못 찾습니다. |
-| `BRIDGE_SCRIPT` | `packages/ppt-bridge/bridge.py` | 브릿지 스크립트 경로 직접 지정 (경로에 한글이 섞여 문제가 될 때 사용) |
+| `BRIDGE_SCRIPT` | `reference/ppt-bridge/bridge.py` | 브릿지 스크립트 경로 직접 지정 (경로에 한글이 섞여 문제가 될 때 사용) |
 
 ---
 

@@ -1,7 +1,7 @@
 """bridge.py 테스트.
 
 실행:
-    cd packages/ppt-bridge
+    cd reference/ppt-bridge
     .venv/bin/python -m pytest tests -v
 
 테스트를 왜 이렇게 나눠 놨는지 각 클래스 주석에 적어 뒀습니다.
