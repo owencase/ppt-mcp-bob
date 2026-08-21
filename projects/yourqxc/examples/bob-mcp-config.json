@@ -1,0 +1,23 @@
+{
+  "_comment": "IBM BOB의 MCP 서버 설정에 넣을 예시. command는 반드시 절대 경로로 적는다.",
+  "mcpServers": {
+    "ppt": {
+      "command": "/Users/이름/Desktop/intern/PPT_MCP/.venv/bin/ppt-mcp",
+      "args": [
+        "--output-dir", "/Users/이름/Documents/decks"
+      ],
+      "env": {
+        "PPT_MCP_DEFAULT_THEME": "carbon_light"
+      }
+    },
+
+    "_사내_템플릿을_쓰는_경우": {
+      "command": "/Users/이름/Desktop/intern/PPT_MCP/.venv/bin/ppt-mcp",
+      "args": [
+        "--output-dir", "/Users/이름/Documents/decks",
+        "--template-dir", "/Users/이름/Documents/서식",
+        "--default-template", "/Users/이름/Documents/서식/IBM_표준.potx"
+      ]
+    }
+  }
+}

@@ -1,0 +1,29 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "ppt-mcp-yourqxc"
+version = "0.1.0"
+description = "PPT(.pptx) 생성·편집 MCP 서버 — IBM BOB 등 MCP 클라이언트용"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "mcp>=2.0.0",
+    "python-pptx>=1.0.2",
+    "pydantic>=2.7",
+]
+
+# HTTP 전송에 필요한 uvicorn/starlette는 mcp 2.0의 필수 의존성이라 따로 적지 않는다.
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+ppt-mcp = "ppt_mcp.__main__:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ppt_mcp"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
