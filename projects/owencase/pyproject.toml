@@ -1,0 +1,70 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "ppt-mcp-bob"
+version = "1.7.0"
+description = "IBM Bob PowerPoint MCP server for safe real-time editing through Windows COM automation"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+authors = [
+    { name = "owencase" },
+]
+keywords = [
+    "ibm-bob",
+    "mcp",
+    "powerpoint",
+    "powerpoint-mcp",
+    "com",
+    "windows-com",
+    "automation",
+    "safe-editing",
+    "ai-agent",
+    "llm",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: Microsoft :: Windows :: Windows 10",
+    "Operating System :: Microsoft :: Windows :: Windows 11",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Office/Business :: Office Suites",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = [
+    # Both 1.x and 2.x are supported (server.py imports either module layout).
+    # The upper bound is deliberate: mcp 2.0 renamed mcp.server.fastmcp with no
+    # compatibility shim, which broke every install (#176). Keep new majors
+    # opt-in so the same thing cannot happen again.
+    "mcp[cli]>=1.0.0,<3.0.0",
+    "pywin32>=306; sys_platform == 'win32'",
+    "pydantic>=2.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/owencase/ppt-mcp-bob"
+Repository = "https://github.com/owencase/ppt-mcp-bob"
+Issues = "https://github.com/owencase/ppt-mcp-bob/issues"
+
+[project.scripts]
+ppt-mcp-bob = "src.server:main"
+# Compatibility alias for existing local MCP client configurations.
+ppt-mcp = "src.server:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
