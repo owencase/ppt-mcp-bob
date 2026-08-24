@@ -1,0 +1,2194 @@
+"""Advanced operations for PowerPoint COM automation.
+
+Handles tags, font management, picture cropping, shape export,
+slide visibility, shape selection, view control, animation copying,
+picture insertion from URL, aspect ratio locking, and icon search.
+"""
+
+import json
+import logging
+import os
+import tempfile
+import time
+import urllib.error
+import urllib.request
+from typing import Optional, Union
+
+from pydantic import BaseModel, Field, ConfigDict, model_validator
+
+from utils.com_wrapper import ppt
+from utils.navigation import goto_slide
+from utils.color import hex_to_int, int_to_hex
+from ppt_com.constants import (
+    msoTrue, msoFalse,
+    msoShapeRectangle,
+    msoLinkedPicture, msoPicture,
+    SHAPE_FORMAT_MAP,
+    VIEW_TYPE_MAP, VIEW_TYPE_NAMES,
+    ppSelectionNone, ppSelectionSlides, ppSelectionShapes, ppSelectionText,
+    PICTURE_COLOR_TYPE_MAP, PICTURE_COLOR_TYPE_NAMES,
+)
+from ppt_com.shapes import SHAPE_NAME_MAP
+
+logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Icon metadata cache (lazy-loaded on first search)
+# ---------------------------------------------------------------------------
+_icon_cache = None        # list of icon dicts
+_icon_cache_time = 0.0    # timestamp of last fetch
+_ICON_CACHE_TTL = 86400   # 24 hours
+
+_ICON_METADATA_URL = "https://fonts.google.com/metadata/icons"
+
+
+def _fetch_icon_metadata():
+    """Fetch and cache the Material Symbols icon metadata from Google Fonts.
+
+    The first line of the response is `)]}'` (XSS protection) and must be
+    stripped before parsing as JSON.  The parsed icons list is cached for
+    24 hours to avoid repeated network calls.
+    """
+    global _icon_cache, _icon_cache_time
+
+    now = time.time()
+    if _icon_cache is not None and (now - _icon_cache_time) < _ICON_CACHE_TTL:
+        return _icon_cache
+
+    resp = urllib.request.urlopen(_ICON_METADATA_URL)
+    raw = resp.read().decode("utf-8")
+
+    # Strip XSS protection prefix  )]}'
+    first_nl = raw.index("\n")
+    json_str = raw[first_nl + 1:]
+    data = json.loads(json_str)
+
+    _icon_cache = data.get("icons", [])
+    _icon_cache_time = now
+    logger.info("Fetched %d icons from Google Fonts metadata", len(_icon_cache))
+    return _icon_cache
+
+
+def _search_icons(query: str, max_results: int = 20):
+    """Search Material Symbols icons by keyword.
+
+    Scoring:
+    - Exact icon name match: +100
+    - Full query (multi-word) found in icon name: +50
+    - All query words found in icon name: +40
+    - Query word found in icon name: +30
+    - Exact tag match: +20
+    - Query word found in a tag: +10
+    - Query word found in a category: +5
+    - Popularity bonus (normalized to 0-10 range)
+
+    Returns a sorted list of dicts with name, tags, categories, score.
+    """
+    icons = _fetch_icon_metadata()
+    query_lower = query.lower().strip()
+    query_words = query_lower.split()
+
+    results = []
+    for icon in icons:
+        name = icon.get("name", "")
+        tags = [t.lower() for t in icon.get("tags", [])]
+        categories = [c.lower() for c in icon.get("categories", [])]
+        popularity = icon.get("popularity", 0)
+
+        score = 0
+
+        # Exact name match (query == name)
+        if name == query_lower:
+            score += 100
+        # Full query string in name (e.g. "arrow_forward" contains "arrow forward" as "arrow_forward")
+        elif query_lower.replace(" ", "_") == name:
+            score += 90
+        # Full query in name
+        elif query_lower in name:
+            score += 50
+
+        # Bonus: all query words found in name
+        if len(query_words) > 1 and all(w in name for w in query_words):
+            score += 40
+
+        # Per-word scoring
+        for word in query_words:
+            if word in name:
+                score += 30
+            for tag in tags:
+                if word == tag:
+                    score += 20
+                elif word in tag:
+                    score += 10
+            for cat in categories:
+                if word in cat:
+                    score += 5
+
+        if score > 0:
+            # Small popularity bonus (normalized)
+            score += min(popularity / 1000, 10)
+            results.append({
+                "name": name,
+                "categories": icon.get("categories", []),
+                "tags": icon.get("tags", [])[:8],  # limit tags for readability
+                "popularity": popularity,
+                "score": round(score, 2),
+            })
+
+    results.sort(key=lambda x: x["score"], reverse=True)
+    return results[:max_results]
+
+
+# ---------------------------------------------------------------------------
+# Helper: find a shape by name or index
+# ---------------------------------------------------------------------------
+def _get_shape(slide, name_or_index: Union[str, int]):
+    """Find a shape on a slide by name or 1-based index.
+
+    Args:
+        slide: Slide COM object
+        name_or_index: Shape name (str) or 1-based index (int)
+
+    Returns:
+        Shape COM object
+
+    Raises:
+        ValueError: If shape not found
+    """
+    if isinstance(name_or_index, int):
+        if name_or_index < 1 or name_or_index > slide.Shapes.Count:
+            raise ValueError(
+                f"Shape index {name_or_index} out of range "
+                f"(1-{slide.Shapes.Count})"
+            )
+        return slide.Shapes(name_or_index)
+    else:
+        for i in range(1, slide.Shapes.Count + 1):
+            if slide.Shapes(i).Name == name_or_index:
+                return slide.Shapes(i)
+        raise ValueError(f"Shape '{name_or_index}' not found on slide")
+
+
+# ===========================================================================
+# Pydantic input models
+# ===========================================================================
+
+# --- Tags ---
+class SetTagInput(BaseModel):
+    """Input for setting a tag on a shape, slide, or presentation."""
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    slide_index: Optional[int] = Field(
+        default=None, ge=1, description="1-based slide index (required for slide/shape targets)"
+    )
+    shape_name_or_index: Optional[Union[str, int]] = Field(
+        default=None, description="Shape name (str) or 1-based index (int) for shape target. Prefer name — indices shift when shapes are added/removed"
+    )
+    tag_name: str = Field(..., description="Tag name (key)")
+    tag_value: str = Field(..., description="Tag value")
+    target_type: str = Field(
+        default="shape",
+        description="Target type: 'shape', 'slide', or 'presentation'",
+    )
+
+
+class GetTagsInput(BaseModel):
+    """Input for getting tags from a shape, slide, or presentation."""
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    slide_index: Optional[int] = Field(
+        default=None, ge=1, description="1-based slide index (required for slide/shape targets)"
+    )
+    shape_name_or_index: Optional[Union[str, int]] = Field(
+        default=None, description="Shape name (str) or 1-based index (int) for shape target. Prefer name — indices shift when shapes are added/removed"
+    )
+    target_type: str = Field(
+        default="shape",
+        description="Target type: 'shape', 'slide', or 'presentation'",
+    )
+
+
+# --- Fonts ---
+class ReplaceFontInput(BaseModel):
+    """Input for replacing a font throughout the presentation."""
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    original_font: str = Field(..., description="Font name to replace")
+    replacement_font: str = Field(..., description="New font name")
+
+
+# --- Set Default Fonts ---
+class SetDefaultFontsInput(BaseModel):
+    """Input for setting default fonts for the entire presentation."""
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    latin: Optional[str] = Field(
+        default=None,
+        description="Latin (alphabet/number) font name (e.g. 'Segoe UI', 'Calibri')",
+    )
+    east_asian: Optional[str] = Field(
+        default=None,
+        description="East Asian (Japanese/Chinese/Korean) font name (e.g. 'Meiryo', 'Yu Gothic UI')",
+    )
+    apply_to_existing: bool = Field(
+        default=True,
+        description="If true (default), also apply fonts to all existing text in the presentation. If false, only update the theme fonts for new text.",
+    )
+
+
+# --- Picture Crop ---
+class CropPictureInput(BaseModel):
+    """Input for cropping a picture shape."""
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    slide_index: int = Field(..., ge=1, description="1-based slide index")
+    shape_name_or_index: Union[str, int] = Field(
+        ..., description="Shape name (str) or 1-based index (int). Prefer name — indices shift when shapes are added/removed"
+    )
+    crop_left: Optional[float] = Field(default=None, description="Crop from left in points (original image coordinates)")
+    crop_right: Optional[float] = Field(default=None, description="Crop from right in points (original image coordinates)")
+    crop_top: Optional[float] = Field(default=None, description="Crop from top in points (original image coordinates)")
+    crop_bottom: Optional[float] = Field(default=None, description="Crop from bottom in points (original image coordinates)")
+    crop_shape: Optional[Union[str, int]] = Field(
+        default=None,
+        description=(
+            "Clip the visible area of the picture to a shape — equivalent to "
+            "PowerPoint's Format → Crop → Crop to Shape. "
+            "Pass a friendly name ('oval', 'rounded_rectangle', 'triangle', etc.) "
+            "or an MsoAutoShapeType integer. "
+            "Use 'rectangle' to reset to normal rectangular display. "
+            "The response always returns crop_shape as an integer (e.g. 'oval' → 9). "
+            "Tip: combine with crop_fit='square' to get a perfect circle from "
+            "non-square images (e.g. crop_fit='square', crop_shape='oval'). "
+            f"Available names: {', '.join(sorted(SHAPE_NAME_MAP.keys()))}"
+        ),
+    )
+    crop_fit: Optional[str] = Field(
+        default=None,
+        description=(
+            "Auto-adjust the crop frame to a target aspect ratio before applying "
+            "crop_shape. Resets any existing crop values and resizes the shape. "
+            "Supported values: 'square' or '1:1'. "
+            "Example: crop_fit='square' + crop_shape='oval' = perfect circle. "
+            "Cannot be combined with crop_left/right/top/bottom."
+        ),
+    )
+    crop_anchor: Optional[float] = Field(
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Position anchor for crop_fit (0.0–1.0, default 0.5 = center). "
+            "For landscape images: 0.0 = keep left edge, 1.0 = keep right edge. "
+            "For portrait images: 0.0 = keep top edge, 1.0 = keep bottom edge. "
+            "Only used when crop_fit is set."
+        ),
+    )
+    corner_radius_pt: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        description=(
+            "Corner radius in points for 'rounded_rectangle' crop_shape. "
+            "Example: 10 = 10pt radius. Only used when crop_shape='rounded_rectangle'."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def validate_crop_fit_exclusivity(self):
+        if self.crop_fit is not None:
+            manual = [self.crop_left, self.crop_right, self.crop_top, self.crop_bottom]
+            if any(v is not None for v in manual):
+                raise ValueError(
+                    "crop_fit cannot be combined with crop_left/crop_right/crop_top/"
+                    "crop_bottom. Use crop_fit alone for automatic cropping, or "
+                    "manual crop values without crop_fit."
+                )
+        return self
+
+
+# --- Picture Format ---
+class SetPictureFormatInput(BaseModel):
+    """Input for adjusting picture format properties (brightness, contrast, etc.)."""
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    slide_index: int = Field(..., ge=1, description="1-based slide index")
+    shape_name_or_index: Union[str, int] = Field(
+        ..., description="Shape name (str) or 1-based index (int). Prefer name — indices shift when shapes are added/removed"
+    )
+    brightness: Optional[float] = Field(
+        default=None, ge=0.0, le=1.0,
+        description="Picture brightness (0.0 = darkest, 1.0 = brightest)",
+    )
+    contrast: Optional[float] = Field(
+        default=None, ge=0.0, le=1.0,
+        description="Picture contrast (0.0 = lowest, 1.0 = highest)",
+    )
+    color_type: Optional[str] = Field(
+        default=None,
+        description=(
+            "Picture color type: 'automatic', 'grayscale', 'black_and_white', 'watermark'"
+        ),
+    )
+    transparent_color: Optional[str] = Field(
+        default=None,
+        pattern=r"^#[0-9A-Fa-f]{6}$",
+        description=(
+            "Hex color like '#RRGGBB' to set as transparency key color. "
+            "Also enables transparent background automatically, "
+            "unless transparent_background=False is explicitly passed."
+        ),
+    )
+    transparent_background: Optional[bool] = Field(
+        default=None,
+        description="Explicitly enable/disable color-key transparency",
+    )
+
+    @model_validator(mode="after")
+    def validate_at_least_one_param(self):
+        params = [
+            self.brightness, self.contrast, self.color_type,
+            self.transparent_color, self.transparent_background,
+        ]
+        if all(v is None for v in params):
+            raise ValueError(
+                "At least one adjustment parameter must be provided: "
+                "brightness, contrast, color_type, transparent_color, "
+                "or transparent_background."
+            )
+        if self.color_type is not None and self.color_type not in PICTURE_COLOR_TYPE_MAP:
+            raise ValueError(
+                f"Unknown color_type '{self.color_type}'. "
+                f"Valid values: {list(PICTURE_COLOR_TYPE_MAP.keys())}"
+            )
+        return self
+
+
+# --- Shape Export ---
+class ExportShapeInput(BaseModel):
+    """Input for exporting a shape as an image file."""
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    slide_index: int = Field(..., ge=1, description="1-based slide index")
+    shape_name_or_index: Union[str, int] = Field(
+        ..., description="Shape name (str) or 1-based index (int). Prefer name — indices shift when shapes are added/removed"
+    )
+    file_path: str = Field(..., description="Output file path")
+    format: str = Field(
+        default="png",
+        description="Image format: 'png', 'jpg', 'gif', 'bmp', 'wmf', or 'emf'",
+    )
+    width: Optional[int] = Field(default=None, description="Export width in pixels")
+    height: Optional[int] = Field(default=None, description="Export height in pixels")
+
+
+# --- Slide Hidden ---
+class SetSlideHiddenInput(BaseModel):
+    """Input for setting slide visibility."""
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    slide_index: int = Field(..., ge=1, description="1-based slide index")
+    hidden: bool = Field(..., description="True to hide, False to show")
+
+
+# --- Select Shapes ---
+class SelectShapesInput(BaseModel):
+    """Input for selecting multiple shapes on a slide."""
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    slide_index: int = Field(..., ge=1, description="1-based slide index")
+    shape_names: list[str] = Field(
+        ..., description="List of shape names to select"
+    )
+
+
+# --- View ---
+class SetViewInput(BaseModel):
+    """Input for setting the PowerPoint view type and zoom."""
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    view_type: Optional[str] = Field(
+        default=None,
+        description=(
+            "View type: 'normal', 'slide_master', 'notes_page', 'handout_master', "
+            "'notes_master', 'outline', 'slide_sorter', 'title_master', 'reading'"
+        ),
+    )
+    zoom: Optional[int] = Field(
+        default=None, ge=10, le=400, description="Zoom level (10-400)"
+    )
+
+
+# --- Copy Animation ---
+class CopyAnimationInput(BaseModel):
+    """Input for copying animation from one shape to another."""
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    slide_index: int = Field(..., ge=1, description="1-based slide index")
+    source_shape: Union[str, int] = Field(
+        ..., description="Source shape name (str) or 1-based index (int). Prefer name — indices shift when shapes are added/removed"
+    )
+    target_shape: Union[str, int] = Field(
+        ..., description="Target shape name (str) or 1-based index (int). Prefer name — indices shift when shapes are added/removed"
+    )
+
+
+# --- Add Picture from URL ---
+class AddPictureFromUrlInput(BaseModel):
+    """Input for adding a picture from a URL."""
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    slide_index: int = Field(..., ge=1, description="1-based slide index")
+    url: str = Field(..., description="URL of the image to download")
+    left: float = Field(default=100, description="Left position in points")
+    top: float = Field(default=100, description="Top position in points")
+    width: Optional[float] = Field(default=None, description="Width in points (auto if not set)")
+    height: Optional[float] = Field(default=None, description="Height in points (auto if not set)")
+    svg_color: Optional[str] = Field(
+        default=None,
+        description=(
+            "Replace 'currentColor' in SVG files with this color (e.g. '#1A73E8'). "
+            "Only applies to SVG files."
+        ),
+    )
+    fit: bool = Field(
+        default=False,
+        description=(
+            "If true, fit the image within the width×height area while preserving "
+            "aspect ratio and centering. Requires both width and height."
+        ),
+    )
+
+
+# --- Add SVG Icon ---
+class AddSvgIconInput(BaseModel):
+    """Input for adding a Material Symbols icon as SVG image."""
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    slide_index: int = Field(..., ge=1, description="1-based slide index")
+    icon_name: str = Field(
+        ...,
+        description=(
+            "Material Symbols icon name (e.g. 'bolt', 'description', 'extension', "
+            "'settings', 'home', 'search', 'favorite'). "
+            "See https://fonts.google.com/icons for available icons."
+        ),
+    )
+    left: float = Field(default=100, description="Left position in points")
+    top: float = Field(default=100, description="Top position in points")
+    width: float = Field(default=72, description="Width of the area in points")
+    height: float = Field(default=72, description="Height of the area in points")
+    color: str = Field(
+        default="accent1",
+        description=(
+            "Icon color. Use '#RRGGBB' hex string or a theme color name "
+            "(e.g. 'accent1', 'accent2', 'dark1', 'light1'). "
+            "Default: 'accent1' (the presentation's main accent color)."
+        ),
+    )
+    style: str = Field(
+        default="outlined",
+        description="Icon style: 'outlined', 'rounded', or 'sharp'",
+    )
+    filled: bool = Field(
+        default=False,
+        description="If true, use the filled variant of the icon instead of outline.",
+    )
+
+
+# --- Lock Aspect Ratio ---
+class LockAspectRatioInput(BaseModel):
+    """Input for locking/unlocking shape aspect ratio."""
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    slide_index: int = Field(..., ge=1, description="1-based slide index")
+    shape_name_or_index: Union[str, int] = Field(
+        ..., description="Shape name (str) or 1-based index (int). Prefer name — indices shift when shapes are added/removed"
+    )
+    locked: bool = Field(..., description="True to lock, False to unlock")
+
+
+# --- Search Icons ---
+class SearchIconsInput(BaseModel):
+    """Input for searching Material Symbols icons by keyword."""
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    query: str = Field(
+        ...,
+        description=(
+            "Search keyword(s) for finding icons. Examples: 'home', 'arrow', "
+            "'settings gear', 'chart graph'. Multiple words narrow the search."
+        ),
+    )
+    max_results: int = Field(
+        default=20, ge=1, le=100,
+        description="Maximum number of results to return (default: 20)",
+    )
+
+
+# ===========================================================================
+# COM implementation functions (run on COM thread via ppt.execute)
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# Tags
+# ---------------------------------------------------------------------------
+def _resolve_target(app, target_type, slide_index, shape_name_or_index):
+    """Resolve the target COM object based on target_type."""
+    pres = ppt._get_pres_impl()
+    target_type_lower = target_type.strip().lower()
+
+    if target_type_lower == "presentation":
+        return pres
+    elif target_type_lower == "slide":
+        if slide_index is None:
+            raise ValueError("slide_index is required for target_type='slide'")
+        return pres.Slides(slide_index)
+    elif target_type_lower == "shape":
+        if slide_index is None:
+            raise ValueError("slide_index is required for target_type='shape'")
+        if shape_name_or_index is None:
+            raise ValueError("shape_name_or_index is required for target_type='shape'")
+        slide = pres.Slides(slide_index)
+        return _get_shape(slide, shape_name_or_index)
+    else:
+        raise ValueError(
+            f"Unknown target_type '{target_type}'. Use 'shape', 'slide', or 'presentation'."
+        )
+
+
+def _set_tag_impl(slide_index, shape_name_or_index, tag_name, tag_value, target_type):
+    app = ppt._get_app_impl()
+    goto_slide(app, slide_index)
+    target = _resolve_target(app, target_type, slide_index, shape_name_or_index)
+    target.Tags.Add(tag_name, tag_value)
+    return {
+        "success": True,
+        "target_type": target_type,
+        "tag_name": tag_name,
+        "tag_value": tag_value,
+    }
+
+
+def _get_tags_impl(slide_index, shape_name_or_index, target_type):
+    app = ppt._get_app_impl()
+    target = _resolve_target(app, target_type, slide_index, shape_name_or_index)
+    tags = {}
+    for i in range(1, target.Tags.Count + 1):
+        tags[target.Tags.Name(i)] = target.Tags.Value(i)
+    return {
+        "success": True,
+        "target_type": target_type,
+        "tags_count": target.Tags.Count,
+        "tags": tags,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Fonts
+# ---------------------------------------------------------------------------
+def _replace_font_impl(original_font, replacement_font):
+    app = ppt._get_app_impl()
+    pres = ppt._get_pres_impl()
+    pres.Fonts.Replace(original_font, replacement_font)
+    return {
+        "success": True,
+        "original_font": original_font,
+        "replacement_font": replacement_font,
+    }
+
+
+def _list_fonts_impl():
+    app = ppt._get_app_impl()
+    pres = ppt._get_pres_impl()
+    fonts = []
+    for i in range(1, pres.Fonts.Count + 1):
+        fonts.append(pres.Fonts(i).Name)
+    return {
+        "success": True,
+        "fonts_count": len(fonts),
+        "fonts": fonts,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Set Default Fonts
+# ---------------------------------------------------------------------------
+def _set_default_fonts_impl(latin, east_asian, apply_to_existing):
+    app = ppt._get_app_impl()
+    pres = ppt._get_pres_impl()
+
+    if not latin and not east_asian:
+        raise ValueError("At least one of 'latin' or 'east_asian' must be provided")
+
+    theme_updated = False
+    # Step 1: Update theme fonts for all designs/slide masters (affects new text).
+    # pres.Designs is the correct collection for multiple slide masters in COM.
+    # Fall back to pres.SlideMaster (singular) if Designs is unavailable.
+    try:
+        masters_updated = 0
+        try:
+            designs = pres.Designs
+            count = designs.Count
+        except Exception:
+            designs = None
+            count = 0
+
+        if designs and count > 0:
+            for m in range(1, count + 1):
+                try:
+                    font_scheme = designs(m).SlideMaster.Theme.ThemeFontScheme
+                    # msoThemeLatin = 1, msoThemeEastAsian = 3
+                    if latin:
+                        font_scheme.MajorFont(1).Name = latin
+                        font_scheme.MinorFont(1).Name = latin
+                    if east_asian:
+                        font_scheme.MajorFont(3).Name = east_asian
+                        font_scheme.MinorFont(3).Name = east_asian
+                    masters_updated += 1
+                except Exception as e:
+                    logger.warning("Failed to update theme fonts for design %d: %s", m, e)
+        else:
+            # Fallback: single slide master
+            font_scheme = pres.SlideMaster.Theme.ThemeFontScheme
+            if latin:
+                font_scheme.MajorFont(1).Name = latin
+                font_scheme.MinorFont(1).Name = latin
+            if east_asian:
+                font_scheme.MajorFont(3).Name = east_asian
+                font_scheme.MinorFont(3).Name = east_asian
+            masters_updated = 1
+
+        theme_updated = masters_updated > 0
+    except Exception as e:
+        logger.warning("Failed to update theme fonts: %s", e)
+
+    # Step 2: Apply to existing text (including shapes inside groups)
+    def _apply_to_shape(shape):
+        """Recursively apply fonts to a shape and any grouped children."""
+        try:
+            if shape.HasTextFrame:
+                font = shape.TextFrame.TextRange.Font
+                if latin:
+                    font.Name = latin
+                if east_asian:
+                    font.NameFarEast = east_asian
+                return 1
+        except Exception:
+            pass
+        # Recurse into group members
+        updated = 0
+        try:
+            for k in range(1, shape.GroupItems.Count + 1):
+                updated += _apply_to_shape(shape.GroupItems(k))
+        except Exception:
+            pass
+        return updated
+
+    slides_processed = 0
+    shapes_updated = 0
+    if apply_to_existing:
+        for i in range(1, pres.Slides.Count + 1):
+            slide = pres.Slides(i)
+            slides_processed += 1
+            for j in range(1, slide.Shapes.Count + 1):
+                try:
+                    shapes_updated += _apply_to_shape(slide.Shapes(j))
+                except Exception:
+                    pass
+
+    result = {"success": True, "theme_updated": theme_updated}
+    if latin:
+        result["latin"] = latin
+    if east_asian:
+        result["east_asian"] = east_asian
+    if apply_to_existing:
+        result["slides_processed"] = slides_processed
+        result["shapes_updated"] = shapes_updated
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Picture Crop
+# ---------------------------------------------------------------------------
+def _crop_picture_impl(slide_index, shape_name_or_index, crop_left, crop_right,
+                       crop_top, crop_bottom, crop_shape, crop_fit, crop_anchor,
+                       corner_radius_pt):
+    app = ppt._get_app_impl()
+    goto_slide(app, slide_index)
+    pres = ppt._get_pres_impl()
+    slide = pres.Slides(slide_index)
+    shape = _get_shape(slide, shape_name_or_index)
+
+    if shape.Type not in (msoLinkedPicture, msoPicture):
+        raise ValueError(
+            f"Shape '{shape.Name}' is not a picture (type={shape.Type}). "
+            "ppt_crop_picture only works on picture shapes inserted via ppt_add_picture."
+        )
+
+    # Resolve crop_shape first so any validation error aborts before mutating
+    # the slide — prevents partial updates when crop_shape is invalid.
+    auto_shape_int = None
+    if crop_shape is not None:
+        if isinstance(crop_shape, str):
+            key = crop_shape.strip().lower()
+            if key.isdigit():
+                # Accept non-negative numeric strings like "9" as integer 9
+                auto_shape_int = int(key)
+            elif key not in SHAPE_NAME_MAP:
+                raise ValueError(
+                    f"Unknown crop_shape '{crop_shape}'. "
+                    f"Available names: {', '.join(sorted(SHAPE_NAME_MAP.keys()))}"
+                )
+            else:
+                auto_shape_int = SHAPE_NAME_MAP[key]
+        else:
+            auto_shape_int = int(crop_shape)
+
+    # Validate crop_fit
+    if crop_fit is not None:
+        fit_key = crop_fit.strip().lower()
+        if fit_key not in ("square", "1:1"):
+            raise ValueError(
+                f"Unknown crop_fit '{crop_fit}'. Supported values: 'square', '1:1'"
+            )
+
+    pic_fmt = shape.PictureFormat
+
+    if crop_fit is not None:
+        # Auto-crop to 1:1 aspect ratio (2-stage approach for perfect circles).
+        # Stage 1: Get original image dimensions and calculate crop values.
+        # Stage 2: Resize the shape to square.
+        anchor = crop_anchor if crop_anchor is not None else 0.5
+
+        # Reset existing crops so we work from the full image.
+        pic_fmt.CropLeft = 0
+        pic_fmt.CropRight = 0
+        pic_fmt.CropTop = 0
+        pic_fmt.CropBottom = 0
+
+        # Get original image dimensions via ScaleWidth/ScaleHeight reset.
+        old_lock = shape.LockAspectRatio
+        shape.LockAspectRatio = msoFalse
+
+        cur_w = shape.Width
+        cur_h = shape.Height
+
+        # ScaleWidth(1.0, msoTrue) resets to 100% of original image size.
+        shape.ScaleWidth(1.0, msoTrue)
+        shape.ScaleHeight(1.0, msoTrue)
+        orig_w = shape.Width
+        orig_h = shape.Height
+
+        # Restore to the display size before crop.
+        shape.Width = cur_w
+        shape.Height = cur_h
+
+        # Calculate crop values in original-image coordinates.
+        if orig_w > orig_h:
+            # Landscape: crop left and right to make content square.
+            excess = orig_w - orig_h
+            pic_fmt.CropLeft = excess * anchor
+            pic_fmt.CropRight = excess * (1.0 - anchor)
+        elif orig_h > orig_w:
+            # Portrait: crop top and bottom to make content square.
+            excess = orig_h - orig_w
+            pic_fmt.CropTop = excess * anchor
+            pic_fmt.CropBottom = excess * (1.0 - anchor)
+        # else: already square — no crop needed.
+
+        # Resize the shape to square (use the smaller dimension).
+        min_dim = min(cur_w, cur_h)
+        shape.Width = min_dim
+        shape.Height = min_dim
+
+        shape.LockAspectRatio = old_lock
+    else:
+        # Manual crop values (existing behavior).
+        if crop_left is not None:
+            pic_fmt.CropLeft = crop_left
+        if crop_right is not None:
+            pic_fmt.CropRight = crop_right
+        if crop_top is not None:
+            pic_fmt.CropTop = crop_top
+        if crop_bottom is not None:
+            pic_fmt.CropBottom = crop_bottom
+
+    if auto_shape_int is not None:
+        try:
+            shape.AutoShapeType = auto_shape_int
+        except Exception as e:
+            raise ValueError(
+                f"Invalid crop_shape value {auto_shape_int}: must be a valid "
+                f"MsoAutoShapeType integer (1–187). COM error: {e}"
+            ) from e
+
+    # Apply corner radius for rounded_rectangle crop shapes.
+    if corner_radius_pt is not None:
+        # msoShapeRoundedRectangle = 5
+        try:
+            current_type = shape.AutoShapeType
+        except Exception:
+            current_type = None
+        if current_type == 5:
+            short_side = min(shape.Width, shape.Height)
+            adj_value = min(0.5, corner_radius_pt / short_side) if short_side > 0 else 0
+            shape.Adjustments[1] = adj_value
+
+    # Read AutoShapeType safely — may fail on msoLinkedPicture (type 11).
+    try:
+        auto_shape_val = shape.AutoShapeType
+    except Exception:
+        auto_shape_val = None
+
+    return {
+        "success": True,
+        "shape_name": shape.Name,
+        "width": round(shape.Width, 2),
+        "height": round(shape.Height, 2),
+        "crop_left": round(pic_fmt.CropLeft, 2),
+        "crop_right": round(pic_fmt.CropRight, 2),
+        "crop_top": round(pic_fmt.CropTop, 2),
+        "crop_bottom": round(pic_fmt.CropBottom, 2),
+        "crop_shape": auto_shape_val,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Shape Export
+# ---------------------------------------------------------------------------
+def _export_shape_impl(slide_index, shape_name_or_index, file_path, format_type, width, height):
+    app = ppt._get_app_impl()
+    goto_slide(app, slide_index)
+    pres = ppt._get_pres_impl()
+    slide = pres.Slides(slide_index)
+    shape = _get_shape(slide, shape_name_or_index)
+
+    abs_path = os.path.abspath(file_path)
+
+    # Convert string format name to integer if needed
+    if isinstance(format_type, str):
+        fmt_key = format_type.strip().lower()
+        fmt_int = SHAPE_FORMAT_MAP.get(fmt_key)
+        if fmt_int is None:
+            raise ValueError(
+                f"Unknown format '{format_type}'. "
+                f"Valid values: {list(SHAPE_FORMAT_MAP.keys())}"
+            )
+        format_type = fmt_int
+
+    # Ensure output directory exists
+    out_dir = os.path.dirname(abs_path)
+    if out_dir and not os.path.exists(out_dir):
+        os.makedirs(out_dir, exist_ok=True)
+
+    if width is not None and height is not None:
+        shape.Export(abs_path, format_type, width, height)
+    elif width is not None:
+        shape.Export(abs_path, format_type, width)
+    else:
+        shape.Export(abs_path, format_type)
+
+    return {
+        "success": True,
+        "shape_name": shape.Name,
+        "file_path": abs_path,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Slide Hidden
+# ---------------------------------------------------------------------------
+def _set_slide_hidden_impl(slide_index, hidden):
+    app = ppt._get_app_impl()
+    goto_slide(app, slide_index)
+    pres = ppt._get_pres_impl()
+    slide = pres.Slides(slide_index)
+    slide.SlideShowTransition.Hidden = msoTrue if hidden else msoFalse
+    return {
+        "success": True,
+        "slide_index": slide_index,
+        "hidden": hidden,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Select Shapes
+# ---------------------------------------------------------------------------
+def _select_shapes_impl(slide_index, shape_names):
+    app = ppt._get_app_impl()
+    pres = ppt._get_pres_impl()
+    slide = pres.Slides(slide_index)
+
+    # Navigate to the slide first
+    app.ActiveWindow.View.GotoSlide(slide_index)
+
+    # Select first shape (replace=True is default)
+    first_shape = _get_shape(slide, shape_names[0])
+    first_shape.Select()
+
+    # Add remaining shapes to selection (msoFalse=0 means add to selection)
+    for name in shape_names[1:]:
+        shape = _get_shape(slide, name)
+        shape.Select(msoFalse)
+
+    return {
+        "success": True,
+        "slide_index": slide_index,
+        "selected_shapes": shape_names,
+        "count": len(shape_names),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Get Selection
+# ---------------------------------------------------------------------------
+def _get_selection_impl():
+    app = ppt._get_app_impl()
+    selection = app.ActiveWindow.Selection
+    sel_type = selection.Type
+
+    result = {
+        "success": True,
+        "type": sel_type,
+    }
+
+    if sel_type == ppSelectionNone:
+        result["type_name"] = "none"
+    elif sel_type == ppSelectionSlides:
+        result["type_name"] = "slides"
+        slide_indices = []
+        for i in range(1, selection.SlideRange.Count + 1):
+            slide_indices.append(selection.SlideRange(i).SlideIndex)
+        result["slide_indices"] = slide_indices
+    elif sel_type == ppSelectionShapes:
+        result["type_name"] = "shapes"
+        shape_names = []
+        for i in range(1, selection.ShapeRange.Count + 1):
+            shape_names.append(selection.ShapeRange(i).Name)
+        result["shape_names"] = shape_names
+        result["count"] = selection.ShapeRange.Count
+    elif sel_type == ppSelectionText:
+        result["type_name"] = "text"
+        result["text"] = selection.TextRange.Text
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# View
+# ---------------------------------------------------------------------------
+def _set_view_impl(view_type, zoom):
+    app = ppt._get_app_impl()
+    window = app.ActiveWindow
+
+    if view_type is not None:
+        vt_key = view_type.strip().lower().replace(" ", "_").replace("-", "_")
+        if vt_key not in VIEW_TYPE_MAP:
+            raise ValueError(
+                f"Unknown view_type '{view_type}'. "
+                f"Use one of: {', '.join(VIEW_TYPE_MAP.keys())}"
+            )
+        window.ViewType = VIEW_TYPE_MAP[vt_key]
+
+    if zoom is not None:
+        window.View.Zoom = zoom
+
+    current_view_type = window.ViewType
+    current_zoom = window.View.Zoom
+
+    return {
+        "success": True,
+        "view_type": VIEW_TYPE_NAMES.get(current_view_type, f"Unknown({current_view_type})"),
+        "view_type_id": current_view_type,
+        "zoom": current_zoom,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Copy Animation
+# ---------------------------------------------------------------------------
+def _copy_animation_impl(slide_index, source_shape, target_shape):
+    app = ppt._get_app_impl()
+    goto_slide(app, slide_index)
+    pres = ppt._get_pres_impl()
+    slide = pres.Slides(slide_index)
+    src = _get_shape(slide, source_shape)
+    tgt = _get_shape(slide, target_shape)
+
+    src.PickupAnimation()
+    tgt.ApplyAnimation()
+
+    return {
+        "success": True,
+        "source_shape": src.Name,
+        "target_shape": tgt.Name,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Add Picture from URL
+# ---------------------------------------------------------------------------
+def _add_picture_from_url_impl(slide_index, url, left, top, width, height, svg_color, fit):
+    app = ppt._get_app_impl()
+    goto_slide(app, slide_index)
+    pres = ppt._get_pres_impl()
+    slide = pres.Slides(slide_index)
+
+    # Download the image
+    resp = urllib.request.urlopen(url)
+    content_type = resp.headers.get("Content-Type", "")
+    is_svg = url.lower().endswith(".svg") or "svg" in content_type
+
+    if is_svg:
+        svg_text = resp.read().decode("utf-8")
+        if svg_color:
+            svg_text = svg_text.replace("currentColor", svg_color)
+        tmp_fd, tmp_path = tempfile.mkstemp(suffix=".svg")
+        os.close(tmp_fd)
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            f.write(svg_text)
+    else:
+        data = resp.read()
+        suffix = os.path.splitext(url.split("?")[0])[-1] or ".png"
+        tmp_fd, tmp_path = tempfile.mkstemp(suffix=suffix)
+        os.close(tmp_fd)
+        with open(tmp_path, "wb") as f:
+            f.write(data)
+
+    try:
+        abs_tmp = os.path.abspath(tmp_path)
+
+        if fit and width is not None and height is not None:
+            # Auto-size first, then fit to area
+            # AddPicture(FileName, LinkToFile, SaveWithDocument, Left, Top, Width, Height)
+            pic = slide.Shapes.AddPicture(abs_tmp, 0, -1, left, top, -1, -1)
+            pic.LockAspectRatio = -1  # msoTrue
+            scale = min(width / pic.Width, height / pic.Height)
+            new_w = pic.Width * scale
+            new_h = pic.Height * scale
+            pic.Width = new_w
+            pic.Left = left + (width - new_w) / 2
+            pic.Top = top + (height - new_h) / 2
+        else:
+            w = width if width is not None else -1
+            h = height if height is not None else -1
+            pic = slide.Shapes.AddPicture(abs_tmp, 0, -1, left, top, w, h)
+
+        return {
+            "success": True,
+            "shape_name": pic.Name,
+            "shape_index": pic.ZOrderPosition,
+            "width": round(pic.Width, 2),
+            "height": round(pic.Height, 2),
+            "source_url": url,
+        }
+    finally:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+
+
+# ---------------------------------------------------------------------------
+# Add SVG Icon
+# ---------------------------------------------------------------------------
+def _resolve_color(pres, color_str):
+    """Resolve a color string to a hex '#RRGGBB' value.
+
+    Accepts '#RRGGBB' hex strings directly, or theme color names
+    like 'accent1', 'dark1', 'light2', etc.
+    """
+    if color_str.startswith("#"):
+        return color_str
+
+    # Theme color name -> resolve from presentation
+    theme_map = {
+        "dark1": 1, "light1": 2, "dark2": 3, "light2": 4,
+        "accent1": 5, "accent2": 6, "accent3": 7, "accent4": 8,
+        "accent5": 9, "accent6": 10, "hyperlink": 11,
+        "followed_hyperlink": 12,
+    }
+    idx = theme_map.get(color_str.lower())
+    if idx is None:
+        raise ValueError(
+            f"Unknown color '{color_str}'. Use '#RRGGBB' or theme name: "
+            f"{list(theme_map.keys())}"
+        )
+    # ThemeColorScheme is 1-based
+    bgr = pres.SlideMaster.Theme.ThemeColorScheme(idx).RGB
+    r = bgr & 0xFF
+    g = (bgr >> 8) & 0xFF
+    b = (bgr >> 16) & 0xFF
+    return f"#{r:02X}{g:02X}{b:02X}"
+
+
+class SetDefaultShapeStyleInput(BaseModel):
+    """Input for setting the default shape style for new shapes."""
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    # --- Shape-based mode ---
+    slide_index: Optional[int] = Field(
+        default=None,
+        ge=1,
+        description=(
+            "1-based slide index of the template shape. "
+            "When provided together with shape_name_or_index, that shape's full style "
+            "(fill, border, effects, font, etc.) is captured as the default. "
+            "Omit to use property-based mode instead."
+        ),
+    )
+    shape_name_or_index: Optional[Union[str, int]] = Field(
+        default=None,
+        description=(
+            "Name or 1-based index of the shape whose style to use as the default. "
+            "Must be provided together with slide_index."
+        ),
+    )
+
+    # --- Property-based mode ---
+    fill_color: Optional[str] = Field(
+        default=None,
+        description=(
+            "Fill color as '#RRGGBB' hex or theme name (e.g. 'accent1'). "
+            "Set fill_type='none' to make the fill transparent instead."
+        ),
+    )
+    fill_type: Optional[str] = Field(
+        default=None,
+        description="'solid' to apply fill_color, 'none' for no fill. Omit to leave fill unchanged.",
+    )
+    line_visible: Optional[bool] = Field(
+        default=None,
+        description="Show (true) or hide (false) the shape border.",
+    )
+    line_color: Optional[str] = Field(
+        default=None,
+        description="Border color as '#RRGGBB' hex or theme name.",
+    )
+    line_weight: Optional[float] = Field(
+        default=None,
+        ge=0,
+        description="Border weight in points.",
+    )
+    font_name: Optional[str] = Field(default=None, description="Default font name for shape text.")
+    font_size: Optional[float] = Field(default=None, gt=0, description="Default font size in points.")
+    font_bold: Optional[bool] = Field(default=None, description="Default bold setting.")
+    font_italic: Optional[bool] = Field(default=None, description="Default italic setting.")
+    font_color: Optional[str] = Field(
+        default=None,
+        description="Default font color as '#RRGGBB' hex or theme name.",
+    )
+
+    @model_validator(mode="after")
+    def validate_mode(self):
+        shape_mode = self.slide_index is not None or self.shape_name_or_index is not None
+        prop_mode = any(
+            v is not None for v in [
+                self.fill_color, self.fill_type,
+                self.line_visible, self.line_color, self.line_weight,
+                self.font_name, self.font_size, self.font_bold, self.font_italic, self.font_color,
+            ]
+        )
+
+        if shape_mode and prop_mode:
+            raise ValueError(
+                "Cannot mix shape-based and property-based modes. "
+                "Either provide slide_index + shape_name_or_index, or fill/line/font properties."
+            )
+        if shape_mode:
+            if self.slide_index is None or self.shape_name_or_index is None:
+                raise ValueError("slide_index and shape_name_or_index must both be provided.")
+        else:
+            if self.fill_type is not None and self.fill_type not in ("solid", "none"):
+                raise ValueError(f"fill_type must be 'solid' or 'none', got '{self.fill_type}'")
+            if self.fill_type == "solid" and self.fill_color is None:
+                raise ValueError("fill_color is required when fill_type='solid'")
+        return self
+
+
+def _set_default_shape_style_from_shape_impl(slide_index, shape_name_or_index):
+    app = ppt._get_app_impl()
+    pres = ppt._get_pres_impl()
+    if slide_index > pres.Slides.Count:
+        raise ValueError(f"slide_index {slide_index} out of range (1-{pres.Slides.Count})")
+    goto_slide(app, slide_index)
+    slide = pres.Slides(slide_index)
+    shp = _get_shape(slide, shape_name_or_index)
+    shp.SetShapesDefaultProperties()
+    return json.dumps({"success": True, "source_shape": shp.Name})
+
+
+def _set_default_shape_style_impl(
+    fill_type, fill_color,
+    line_visible, line_color, line_weight,
+    font_name, font_size, font_bold, font_italic, font_color,
+):
+    pres = ppt._get_pres_impl()
+    if pres.Slides.Count == 0:
+        raise ValueError("Presentation has no slides. Add a slide first.")
+
+    # Resolve theme color names to hex inside the COM thread.
+    fill_color_hex = _resolve_color(pres, fill_color) if fill_color else None
+    line_color_hex = _resolve_color(pres, line_color) if line_color else None
+    font_color_hex = _resolve_color(pres, font_color) if font_color else None
+
+    # Create a tiny off-screen dummy shape on slide 1 to act as a template.
+    # Negative coordinates keep it completely off the slide canvas.
+    slide = pres.Slides(1)
+    shp = slide.Shapes.AddShape(msoShapeRectangle, -10000, -10000, 1, 1)
+    try:
+        if fill_type == "none":
+            shp.Fill.Visible = msoFalse
+        elif fill_color_hex is not None:
+            shp.Fill.Visible = msoTrue
+            shp.Fill.Solid()
+            shp.Fill.ForeColor.RGB = hex_to_int(fill_color_hex)
+
+        if line_visible is not None:
+            shp.Line.Visible = msoTrue if line_visible else msoFalse
+        if line_color_hex is not None:
+            shp.Line.ForeColor.RGB = hex_to_int(line_color_hex)
+        if line_weight is not None:
+            shp.Line.Weight = line_weight
+
+        if font_name is not None:
+            shp.TextFrame.TextRange.Font.Name = font_name
+        if font_size is not None:
+            shp.TextFrame.TextRange.Font.Size = font_size
+        if font_bold is not None:
+            shp.TextFrame.TextRange.Font.Bold = msoTrue if font_bold else msoFalse
+        if font_italic is not None:
+            shp.TextFrame.TextRange.Font.Italic = msoTrue if font_italic else msoFalse
+        if font_color_hex is not None:
+            shp.TextFrame.TextRange.Font.Color.RGB = hex_to_int(font_color_hex)
+
+        shp.SetShapesDefaultProperties()
+    finally:
+        shp.Delete()
+
+    return json.dumps({"success": True})
+
+
+def _add_svg_icon_impl(slide_index, icon_name, left, top, width, height, color, style, filled):
+    app = ppt._get_app_impl()
+    goto_slide(app, slide_index)
+    pres = ppt._get_pres_impl()
+    slide = pres.Slides(slide_index)
+
+    # Resolve theme color name to hex
+    hex_color = _resolve_color(pres, color)
+
+    # Build CDN URL (append -fill suffix for filled variant)
+    base = "https://cdn.jsdelivr.net/npm/@material-symbols/svg-400@0.31.3"
+    file_name = f"{icon_name}-fill" if filled else icon_name
+    svg_url = f"{base}/{style}/{file_name}.svg"
+
+    # Download SVG
+    try:
+        resp = urllib.request.urlopen(svg_url)
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            raise ValueError(
+                f"Icon '{icon_name}' not found (style='{style}', filled={filled}). "
+                f"Check the name at https://fonts.google.com/icons . "
+                f"URL: {svg_url}"
+            ) from None
+        raise
+    svg_text = resp.read().decode("utf-8")
+
+    # Apply color: replace currentColor and inject fill on <svg> tag
+    svg_text = svg_text.replace("currentColor", hex_color)
+    if f'fill="{hex_color}"' not in svg_text:
+        svg_text = svg_text.replace("<svg ", f'<svg fill="{hex_color}" ', 1)
+
+    # Write to temp file
+    tmp_fd, tmp_path = tempfile.mkstemp(suffix=".svg")
+    os.close(tmp_fd)
+
+    try:
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            f.write(svg_text)
+
+        abs_tmp = os.path.abspath(tmp_path)
+
+        # Insert with auto-size, then fit
+        # AddPicture(FileName, LinkToFile, SaveWithDocument, Left, Top, Width, Height)
+        pic = slide.Shapes.AddPicture(abs_tmp, 0, -1, left, top, -1, -1)
+
+        # Fit to area preserving aspect ratio
+        pic.LockAspectRatio = -1  # msoTrue
+        scale = min(width / pic.Width, height / pic.Height)
+        new_w = pic.Width * scale
+        new_h = pic.Height * scale
+        pic.Width = new_w
+        pic.Left = left + (width - new_w) / 2
+        pic.Top = top + (height - new_h) / 2
+
+        return {
+            "success": True,
+            "shape_name": pic.Name,
+            "shape_index": pic.ZOrderPosition,
+            "width": round(pic.Width, 2),
+            "height": round(pic.Height, 2),
+            "icon_name": icon_name,
+            "source_url": svg_url,
+        }
+    finally:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+
+
+# ---------------------------------------------------------------------------
+# Lock Aspect Ratio
+# ---------------------------------------------------------------------------
+def _lock_aspect_ratio_impl(slide_index, shape_name_or_index, locked):
+    app = ppt._get_app_impl()
+    goto_slide(app, slide_index)
+    pres = ppt._get_pres_impl()
+    slide = pres.Slides(slide_index)
+    shape = _get_shape(slide, shape_name_or_index)
+    shape.LockAspectRatio = msoTrue if locked else msoFalse
+    return {
+        "success": True,
+        "shape_name": shape.Name,
+        "locked": locked,
+    }
+
+
+# ===========================================================================
+# MCP tool functions (sync wrappers that delegate to COM thread)
+# ===========================================================================
+
+# --- Tags ---
+def set_tag(params: SetTagInput) -> str:
+    """Set a tag (key-value pair) on a shape, slide, or presentation.
+
+    Args:
+        params: Target identification and tag name/value.
+
+    Returns:
+        JSON confirming the tag was set.
+    """
+    try:
+        result = ppt.execute(
+            _set_tag_impl,
+            params.slide_index, params.shape_name_or_index,
+            params.tag_name, params.tag_value, params.target_type,
+        )
+        return json.dumps(result)
+    except Exception as e:
+        return json.dumps({"error": f"Failed to set tag: {str(e)}"})
+
+
+def get_tags(params: GetTagsInput) -> str:
+    """Get all tags from a shape, slide, or presentation.
+
+    Args:
+        params: Target identification.
+
+    Returns:
+        JSON with tag count and name-value pairs.
+    """
+    try:
+        result = ppt.execute(
+            _get_tags_impl,
+            params.slide_index, params.shape_name_or_index, params.target_type,
+        )
+        return json.dumps(result)
+    except Exception as e:
+        return json.dumps({"error": f"Failed to get tags: {str(e)}"})
+
+
+# --- Fonts ---
+def replace_font(params: ReplaceFontInput) -> str:
+    """Replace a font throughout the active presentation.
+
+    Args:
+        params: Original and replacement font names.
+
+    Returns:
+        JSON confirming the font replacement.
+    """
+    try:
+        result = ppt.execute(
+            _replace_font_impl,
+            params.original_font, params.replacement_font,
+        )
+        return json.dumps(result)
+    except Exception as e:
+        return json.dumps({"error": f"Failed to replace font: {str(e)}"})
+
+
+def list_fonts() -> str:
+    """List all fonts used in the active presentation.
+
+    Returns:
+        JSON with font count and names.
+    """
+    try:
+        result = ppt.execute(_list_fonts_impl)
+        return json.dumps(result)
+    except Exception as e:
+        return json.dumps({"error": f"Failed to list fonts: {str(e)}"})
+
+
+# --- Set Default Fonts ---
+def set_default_fonts(params: SetDefaultFontsInput) -> str:
+    """Set default fonts for the entire presentation.
+
+    Args:
+        params: Font names and whether to apply to existing text.
+
+    Returns:
+        JSON with theme update status and number of shapes updated.
+    """
+    try:
+        result = ppt.execute(
+            _set_default_fonts_impl,
+            params.latin, params.east_asian, params.apply_to_existing,
+        )
+        return json.dumps(result)
+    except Exception as e:
+        return json.dumps({"error": f"Failed to set default fonts: {str(e)}"})
+
+
+# --- Picture Crop ---
+def crop_picture(params: CropPictureInput) -> str:
+    """Crop a picture shape.
+
+    Supports three modes:
+
+    1. **Manual crop** — set crop_left/right/top/bottom in points (original image coords).
+    2. **Shape crop** — set crop_shape to clip to a geometric shape (oval, triangle, etc.).
+    3. **Fit + shape** — set crop_fit='square' + crop_shape='oval' to get a perfect circle
+       from any image, regardless of its original aspect ratio. Use crop_anchor (0.0–1.0)
+       to control which part of the image is kept.
+
+    Args:
+        params: Shape identification, crop values, shape crop, and fit options.
+
+    Returns:
+        JSON with shape dimensions, crop values, and active crop_shape.
+    """
+    try:
+        result = ppt.execute(
+            _crop_picture_impl,
+            params.slide_index, params.shape_name_or_index,
+            params.crop_left, params.crop_right,
+            params.crop_top, params.crop_bottom,
+            params.crop_shape, params.crop_fit, params.crop_anchor,
+            params.corner_radius_pt,
+        )
+        return json.dumps(result)
+    except Exception as e:
+        return json.dumps({"error": f"Failed to crop picture: {str(e)}"})
+
+
+# --- Picture Format ---
+def _set_picture_format_impl(slide_index, shape_name_or_index, brightness,
+                             contrast, color_type, transparent_color,
+                             transparent_background):
+    app = ppt._get_app_impl()
+    goto_slide(app, slide_index)
+    pres = ppt._get_pres_impl()
+    slide = pres.Slides(slide_index)
+    shape = _get_shape(slide, shape_name_or_index)
+
+    if shape.Type not in (msoLinkedPicture, msoPicture):
+        raise ValueError(
+            f"Shape '{shape.Name}' is not a picture (type={shape.Type}). "
+            "ppt_set_picture_format only works on picture shapes."
+        )
+
+    pf = shape.PictureFormat
+
+    if brightness is not None:
+        pf.Brightness = brightness
+    if contrast is not None:
+        pf.Contrast = contrast
+    if color_type is not None:
+        pf.ColorType = PICTURE_COLOR_TYPE_MAP[color_type]
+    if transparent_color is not None:
+        pf.TransparencyColor = hex_to_int(transparent_color)
+        # Only auto-enable if transparent_background wasn't explicitly set to False
+        if transparent_background is not False:
+            pf.TransparentBackground = msoTrue
+    if transparent_background is not None:
+        pf.TransparentBackground = msoTrue if transparent_background else msoFalse
+
+    # Read back current state
+    cur_color_type = pf.ColorType
+    color_type_name = PICTURE_COLOR_TYPE_NAMES.get(cur_color_type, "unknown")
+
+    result = {
+        "success": True,
+        "shape_name": shape.Name,
+        "brightness": pf.Brightness,
+        "contrast": pf.Contrast,
+        "color_type": cur_color_type,
+        "color_type_name": color_type_name,
+        "transparent_background": bool(pf.TransparentBackground),
+        "transparent_color_hex": int_to_hex(pf.TransparencyColor),
+    }
+    return result
+
+
+def set_picture_format(params: SetPictureFormatInput) -> str:
+    """Set picture format properties (brightness, contrast, color type, transparency).
+
+    Args:
+        params: Shape identification and picture adjustment values.
+
+    Returns:
+        JSON with current picture format properties after applying changes.
+    """
+    try:
+        result = ppt.execute(
+            _set_picture_format_impl,
+            params.slide_index, params.shape_name_or_index,
+            params.brightness, params.contrast, params.color_type,
+            params.transparent_color, params.transparent_background,
+        )
+        return json.dumps(result)
+    except Exception as e:
+        return json.dumps({"error": f"Failed to set picture format: {str(e)}"})
+
+
+# --- Shape Export ---
+def export_shape(params: ExportShapeInput) -> str:
+    """Export a shape as an image file.
+
+    Args:
+        params: Shape identification, file path, format, and optional dimensions.
+
+    Returns:
+        JSON with shape name and output file path.
+    """
+    try:
+        fmt_key = params.format.strip().lower()
+        if fmt_key not in SHAPE_FORMAT_MAP:
+            return json.dumps({
+                "error": f"Unknown format '{params.format}'. "
+                f"Use one of: {', '.join(SHAPE_FORMAT_MAP.keys())}"
+            })
+        result = ppt.execute(
+            _export_shape_impl,
+            params.slide_index, params.shape_name_or_index,
+            params.file_path, SHAPE_FORMAT_MAP[fmt_key],
+            params.width, params.height,
+        )
+        return json.dumps(result)
+    except Exception as e:
+        return json.dumps({"error": f"Failed to export shape: {str(e)}"})
+
+
+# --- Slide Hidden ---
+def set_slide_hidden(params: SetSlideHiddenInput) -> str:
+    """Set a slide as hidden or visible in the slideshow.
+
+    Args:
+        params: Slide index and hidden state.
+
+    Returns:
+        JSON confirming the hidden state.
+    """
+    try:
+        result = ppt.execute(
+            _set_slide_hidden_impl,
+            params.slide_index, params.hidden,
+        )
+        return json.dumps(result)
+    except Exception as e:
+        return json.dumps({"error": f"Failed to set slide hidden: {str(e)}"})
+
+
+# --- Select Shapes ---
+def select_shapes(params: SelectShapesInput) -> str:
+    """Select multiple shapes on a slide.
+
+    Args:
+        params: Slide index and list of shape names.
+
+    Returns:
+        JSON with selected shape names and count.
+    """
+    try:
+        if not params.shape_names:
+            return json.dumps({"error": "shape_names list must not be empty"})
+        result = ppt.execute(
+            _select_shapes_impl,
+            params.slide_index, params.shape_names,
+        )
+        return json.dumps(result)
+    except Exception as e:
+        return json.dumps({"error": f"Failed to select shapes: {str(e)}"})
+
+
+# --- Get Selection ---
+def get_selection() -> str:
+    """Get the current selection in the active window.
+
+    Returns:
+        JSON with selection type and details.
+    """
+    try:
+        result = ppt.execute(_get_selection_impl)
+        return json.dumps(result)
+    except Exception as e:
+        return json.dumps({"error": f"Failed to get selection: {str(e)}"})
+
+
+# --- View ---
+def set_view(params: SetViewInput) -> str:
+    """Set the PowerPoint view type and/or zoom level.
+
+    Args:
+        params: View type and zoom level.
+
+    Returns:
+        JSON with current view type and zoom after setting.
+    """
+    try:
+        result = ppt.execute(
+            _set_view_impl,
+            params.view_type, params.zoom,
+        )
+        return json.dumps(result)
+    except Exception as e:
+        return json.dumps({"error": f"Failed to set view: {str(e)}"})
+
+
+# --- Copy Animation ---
+def copy_animation(params: CopyAnimationInput) -> str:
+    """Copy animation from one shape to another on the same slide.
+
+    Args:
+        params: Slide index, source shape, and target shape.
+
+    Returns:
+        JSON confirming the animation was copied.
+    """
+    try:
+        result = ppt.execute(
+            _copy_animation_impl,
+            params.slide_index, params.source_shape, params.target_shape,
+        )
+        return json.dumps(result)
+    except Exception as e:
+        return json.dumps({"error": f"Failed to copy animation: {str(e)}"})
+
+
+# --- Add Picture from URL ---
+def add_picture_from_url(params: AddPictureFromUrlInput) -> str:
+    """Add a picture to a slide by downloading from a URL.
+
+    Args:
+        params: Slide index, URL, position, and optional dimensions.
+
+    Returns:
+        JSON with shape name, dimensions, and source URL.
+    """
+    try:
+        result = ppt.execute(
+            _add_picture_from_url_impl,
+            params.slide_index, params.url,
+            params.left, params.top, params.width, params.height,
+            params.svg_color, params.fit,
+        )
+        return json.dumps(result)
+    except Exception as e:
+        return json.dumps({"error": f"Failed to add picture from URL: {str(e)}"})
+
+
+# --- Add SVG Icon ---
+def add_svg_icon(params: AddSvgIconInput) -> str:
+    """Add a Material Symbols icon as SVG image to a slide.
+
+    Args:
+        params: Slide index, icon name, position, dimensions, color, and style.
+
+    Returns:
+        JSON with shape name, dimensions, icon name, and source URL.
+    """
+    try:
+        result = ppt.execute(
+            _add_svg_icon_impl,
+            params.slide_index, params.icon_name,
+            params.left, params.top, params.width, params.height,
+            params.color, params.style, params.filled,
+        )
+        return json.dumps(result)
+    except Exception as e:
+        return json.dumps({"error": f"Failed to add SVG icon: {str(e)}"})
+
+
+# --- Lock Aspect Ratio ---
+def lock_aspect_ratio(params: LockAspectRatioInput) -> str:
+    """Lock or unlock the aspect ratio of a shape.
+
+    Args:
+        params: Shape identification and lock state.
+
+    Returns:
+        JSON confirming the aspect ratio lock state.
+    """
+    try:
+        result = ppt.execute(
+            _lock_aspect_ratio_impl,
+            params.slide_index, params.shape_name_or_index, params.locked,
+        )
+        return json.dumps(result)
+    except Exception as e:
+        return json.dumps({"error": f"Failed to lock aspect ratio: {str(e)}"})
+
+
+# --- Search Icons ---
+def search_icons(params: SearchIconsInput) -> str:
+    """Search Material Symbols icons by keyword.
+
+    Fetches icon metadata from Google Fonts on first call (cached for 24h).
+
+    Args:
+        params: Search query and max results.
+
+    Returns:
+        JSON with matching icons (name, categories, tags, popularity, score).
+    """
+    try:
+        results = _search_icons(params.query, params.max_results)
+        return json.dumps({
+            "success": True,
+            "query": params.query,
+            "count": len(results),
+            "icons": results,
+        })
+    except Exception as e:
+        return json.dumps({"error": f"Failed to search icons: {str(e)}"})
+
+
+# ===========================================================================
+# Tool registration
+# ===========================================================================
+def register_tools(mcp):
+    """Register all advanced operations tools with the MCP server."""
+
+    # --- Tags ---
+    @mcp.tool(
+        name="ppt_set_tag",
+        annotations={
+            "title": "Set Tag",
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        },
+    )
+    async def tool_set_tag(params: SetTagInput) -> str:
+        """Set a tag (key-value pair) on a shape, slide, or presentation.
+
+        Tags are custom metadata stored as name-value string pairs.
+        Set target_type to 'shape' (default), 'slide', or 'presentation'.
+        For shape targets, provide slide_index and shape_name_or_index.
+        For slide targets, provide slide_index.
+        """
+        return set_tag(params)
+
+    @mcp.tool(
+        name="ppt_get_tags",
+        annotations={
+            "title": "Get Tags",
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        },
+    )
+    async def tool_get_tags(params: GetTagsInput) -> str:
+        """Get all tags from a shape, slide, or presentation.
+
+        Returns a dictionary of tag name-value pairs.
+        Set target_type to 'shape' (default), 'slide', or 'presentation'.
+        """
+        return get_tags(params)
+
+    # --- Fonts ---
+    @mcp.tool(
+        name="ppt_replace_font",
+        annotations={
+            "title": "Replace Font",
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        },
+    )
+    async def tool_replace_font(params: ReplaceFontInput) -> str:
+        """Replace all occurrences of a font throughout the active presentation.
+
+        Replaces every instance of original_font with replacement_font
+        across all slides, shapes, and text ranges.
+        """
+        return replace_font(params)
+
+    @mcp.tool(
+        name="ppt_list_fonts",
+        annotations={
+            "title": "List Fonts",
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        },
+    )
+    async def tool_list_fonts() -> str:
+        """List all fonts used in the active presentation.
+
+        Returns the names of all fonts embedded or referenced in the presentation.
+        """
+        return list_fonts()
+
+    @mcp.tool(
+        name="ppt_set_default_fonts",
+        annotations={
+            "title": "Set Default Fonts",
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        },
+    )
+    async def tool_set_default_fonts(params: SetDefaultFontsInput) -> str:
+        """Set default fonts for the entire presentation (Latin and East Asian separately).
+
+        Updates theme fonts so new text uses the specified fonts.
+        If apply_to_existing is true (default), also updates all existing text.
+        Use 'latin' for alphabet/number fonts (e.g. 'Segoe UI') and
+        'east_asian' for Japanese/Chinese/Korean fonts (e.g. 'Meiryo').
+        At least one of latin or east_asian must be provided.
+        """
+        return set_default_fonts(params)
+
+    # --- Picture Crop ---
+    @mcp.tool(
+        name="ppt_crop_picture",
+        annotations={
+            "title": "Crop Picture",
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        },
+    )
+    async def tool_crop_picture(params: CropPictureInput) -> str:
+        """Crop a picture shape — rectangular trim and/or crop-to-shape.
+
+        Two independent crop modes (both optional, combinable):
+
+        **Rectangular crop** (crop_left / crop_right / crop_top / crop_bottom):
+          Trims the picture by the given number of points from each edge.
+          Non-destructive — set all values to 0 to restore the full image.
+
+        **Crop to shape** (crop_shape):
+          Clips the visible area to a geometric shape, equivalent to
+          PowerPoint's Format → Crop → Crop to Shape.
+          Examples: 'oval' for a circular/oval frame, 'rounded_rectangle' for
+          rounded corners, 'triangle', 'diamond', etc.
+          Use 'rectangle' to reset back to a normal rectangular display.
+          Tip: for a perfect circle use 'oval' on a picture whose width == height.
+
+        Returns current crop values and the active crop_shape integer after applying.
+        """
+        return crop_picture(params)
+
+    # --- Picture Format ---
+    @mcp.tool(
+        name="ppt_set_picture_format",
+        annotations={
+            "title": "Set Picture Format",
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        },
+    )
+    async def tool_set_picture_format(params: SetPictureFormatInput) -> str:
+        """Adjust picture format properties: brightness, contrast, color type, and transparency.
+
+        Works on picture shapes (inserted via ppt_add_picture or ppt_add_picture_from_url).
+        All parameters are optional but at least one must be provided.
+
+        brightness/contrast: 0.0–1.0 range.
+        color_type: 'automatic', 'grayscale', 'black_and_white', 'watermark'.
+        transparent_color: '#RRGGBB' hex — sets the color-key and enables transparency.
+        transparent_background: explicitly enable/disable color-key transparency.
+        """
+        return set_picture_format(params)
+
+    # --- Shape Export ---
+    @mcp.tool(
+        name="ppt_export_shape",
+        annotations={
+            "title": "Export Shape",
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": False,
+            "openWorldHint": True,
+        },
+    )
+    async def tool_export_shape(params: ExportShapeInput) -> str:
+        """Export a shape as an image file.
+
+        Supports formats: 'png', 'jpg', 'gif', 'bmp', 'wmf', 'emf'.
+        Optionally specify width and height in pixels.
+        """
+        return export_shape(params)
+
+    # --- Slide Hidden ---
+    @mcp.tool(
+        name="ppt_set_slide_hidden",
+        annotations={
+            "title": "Set Slide Hidden",
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        },
+    )
+    async def tool_set_slide_hidden(params: SetSlideHiddenInput) -> str:
+        """Set a slide as hidden or visible in the slideshow.
+
+        Hidden slides are skipped during slideshow playback but remain
+        in the presentation. Set hidden=true to hide, hidden=false to show.
+        """
+        return set_slide_hidden(params)
+
+    # --- Select Shapes ---
+    @mcp.tool(
+        name="ppt_select_shapes",
+        annotations={
+            "title": "Select Shapes",
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        },
+    )
+    async def tool_select_shapes(params: SelectShapesInput) -> str:
+        """Select multiple shapes on a slide by name.
+
+        Navigates to the specified slide and selects the listed shapes.
+        The first shape replaces any existing selection; remaining shapes
+        are added to the selection.
+        """
+        return select_shapes(params)
+
+    # --- Get Selection ---
+    @mcp.tool(
+        name="ppt_get_selection",
+        annotations={
+            "title": "Get Selection",
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        },
+    )
+    async def tool_get_selection() -> str:
+        """Get the current selection in the active PowerPoint window.
+
+        Returns the selection type (none, slides, shapes, text).
+        For shapes, returns the list of selected shape names.
+        For text, returns the selected text content.
+        """
+        return get_selection()
+
+    # --- View ---
+    @mcp.tool(
+        name="ppt_set_view",
+        annotations={
+            "title": "Set View",
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        },
+    )
+    async def tool_set_view(params: SetViewInput) -> str:
+        """Set the PowerPoint view type and/or zoom level.
+
+        View types: 'normal', 'slide_master', 'notes_page', 'handout_master',
+        'notes_master', 'outline', 'slide_sorter', 'title_master', 'reading'.
+        Zoom range: 10-400. Returns current view_type and zoom after setting.
+        """
+        return set_view(params)
+
+    # --- Copy Animation ---
+    @mcp.tool(
+        name="ppt_copy_animation",
+        annotations={
+            "title": "Copy Animation",
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        },
+    )
+    async def tool_copy_animation(params: CopyAnimationInput) -> str:
+        """Copy animation effects from one shape to another on the same slide.
+
+        Uses PickupAnimation/ApplyAnimation to transfer all animation
+        settings from the source shape to the target shape.
+        """
+        return copy_animation(params)
+
+    # --- Add Picture from URL ---
+    @mcp.tool(
+        name="ppt_add_picture_from_url",
+        annotations={
+            "title": "Add Picture from URL",
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": False,
+            "openWorldHint": True,
+        },
+    )
+    async def tool_add_picture_from_url(params: AddPictureFromUrlInput) -> str:
+        """Add a picture to a slide by downloading from a URL.
+
+        Downloads the image to a temporary file, inserts it into the slide,
+        and cleans up the temp file. Supports SVG files with optional
+        currentColor replacement via svg_color. If fit=true with both
+        width and height, the image is fitted within the area preserving
+        aspect ratio and centered. If width/height are not specified,
+        the original image dimensions are used.
+        """
+        return add_picture_from_url(params)
+
+    # --- Add SVG Icon ---
+    @mcp.tool(
+        name="ppt_add_svg_icon",
+        annotations={
+            "title": "Add SVG Icon",
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": False,
+            "openWorldHint": True,
+        },
+    )
+    async def tool_add_svg_icon(params: AddSvgIconInput) -> str:
+        """Add a Material Symbols icon as SVG image to a slide.
+
+        Downloads the icon from the Google Material Symbols CDN and inserts
+        it fitted within the given area preserving aspect ratio.
+        Icon styles: 'outlined', 'rounded', 'sharp'. Set filled=true for
+        the filled variant. Color accepts '#RRGGBB' or theme names like
+        'accent1'. Use ppt_search_icons to find icon names by keyword.
+        """
+        return add_svg_icon(params)
+
+    # --- Lock Aspect Ratio ---
+    @mcp.tool(
+        name="ppt_lock_aspect_ratio",
+        annotations={
+            "title": "Lock Aspect Ratio",
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        },
+    )
+    async def tool_lock_aspect_ratio(params: LockAspectRatioInput) -> str:
+        """Lock or unlock the aspect ratio of a shape.
+
+        When locked, resizing the shape maintains its proportions.
+        Set locked=true to lock, locked=false to unlock.
+        """
+        return lock_aspect_ratio(params)
+
+    # --- Search Icons ---
+    @mcp.tool(
+        name="ppt_search_icons",
+        annotations={
+            "title": "Search Material Icons",
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": True,
+        },
+    )
+    async def tool_search_icons(params: SearchIconsInput) -> str:
+        """Search Google's Material Symbols icon library by keyword.
+
+        Returns matching icon names sorted by relevance (name, tags, and
+        category matching + popularity). Each result includes the icon
+        name, categories, sample tags, and popularity score.
+        Use the returned icon name with ppt_add_svg_icon to insert it
+        into a slide. Supports multi-word queries (e.g. 'arrow forward',
+        'chart graph'). The metadata is fetched on first call and cached
+        for 24 hours.
+        """
+        return search_icons(params)
+
+    # --- Default Shape Style ---
+    @mcp.tool(
+        name="ppt_set_default_shape_style",
+        annotations={
+            "title": "Set Default Shape Style",
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        },
+    )
+    async def tool_set_default_shape_style(params: SetDefaultShapeStyleInput) -> str:
+        """Set the default style applied to new shapes in the active presentation.
+
+        Equivalent to right-clicking a shape in PowerPoint and choosing
+        "Set as Default Shape". All subsequently inserted shapes inherit
+        the configured style.
+
+        Two modes (mutually exclusive):
+
+        **Shape-based mode** — provide slide_index + shape_name_or_index:
+          Captures ALL properties of the specified shape (fill, border,
+          effects, shadows, font, etc.) exactly as PowerPoint's
+          "Set as Default Shape" UI option does. Recommended when you
+          want a fully-styled shape to serve as the template.
+
+        **Property-based mode** — provide fill/line/font parameters:
+          Sets only the specified properties via a temporary dummy shape.
+          Useful for quick adjustments without needing an existing shape.
+          Omitted fields leave the current default unchanged.
+
+        Examples:
+
+        Shape-based:
+          slide_index=1, shape_name_or_index='MyStyle'
+
+        Property-based:
+          fill_type='none', line_visible=false
+          fill_type='solid', fill_color='accent1',
+            line_visible=false, font_color='#FFFFFF', font_bold=true
+          line_visible=true, line_color='#AAAAAA', line_weight=0.75
+
+        Note: The default is scoped to the presentation, not PowerPoint
+        globally. It resets when the presentation is closed.
+        """
+        if params.slide_index is not None:
+            return ppt.execute(
+                _set_default_shape_style_from_shape_impl,
+                params.slide_index,
+                params.shape_name_or_index,
+            )
+        return ppt.execute(
+            _set_default_shape_style_impl,
+            params.fill_type,
+            params.fill_color,
+            params.line_visible,
+            params.line_color,
+            params.line_weight,
+            params.font_name,
+            params.font_size,
+            params.font_bold,
+            params.font_italic,
+            params.font_color,
+        )

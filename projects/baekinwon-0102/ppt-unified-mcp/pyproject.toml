@@ -1,0 +1,29 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "ppt-unified-mcp"
+version = "0.1.0"
+description = "Unified MCP server for PPT Master generation and PowerPoint COM editing"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+dependencies = [
+    "mcp[cli]>=1.0.0,<3.0.0",
+    "pydantic>=2.0.0",
+    "pywin32>=306; sys_platform == 'win32'",
+    "python-pptx>=0.6.21",
+    "XlsxWriter>=3.0.0",
+    "PyYAML>=6.0",
+    "Pillow>=9.0.0",
+    "numpy>=1.20.0",
+    "skia-pathops>=0.9.2",
+    "uharfbuzz>=0.50.0",
+]
+
+[project.scripts]
+ppt-unified-mcp = "ppt_unified_mcp.server:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ppt_unified_mcp"]
