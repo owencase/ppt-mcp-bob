@@ -1,9 +1,9 @@
-<p align="center">
-  <img src="assets/ppt-mcp-logo-letter.png" alt="IBM Bob PowerPoint MCP" width="480">
-</p>
+# IBM Bob PowerPoint MCP
+
+> **Safe, real-time PowerPoint editing for IBM Bob through Windows COM automation.**
 
 <p align="center">
-  <a href="README_ja.md">日本語</a>
+  <a href="README_ko.md">한국어</a>
 </p>
 
 <p align="center">
@@ -11,39 +11,39 @@
   <img src="https://img.shields.io/badge/Platform-Windows-0078d4.svg" alt="Windows">
   <img src="https://img.shields.io/badge/License-MIT-green.svg" alt="MIT License">
   <img src="https://img.shields.io/badge/IBM%20Bob-ready-052FAD.svg" alt="IBM Bob ready">
+  <img src="https://img.shields.io/badge/version-1.7.0-lightgrey.svg" alt="v1.7.0">
+  <img src="https://img.shields.io/badge/MCP-165%20tools-blueviolet.svg" alt="165 tools">
 </p>
 
-<h1 align="center">IBM Bob PowerPoint MCP</h1>
+A Model Context Protocol (MCP) server that lets IBM Bob inspect and edit a live Microsoft PowerPoint presentation. It communicates directly with the running desktop PowerPoint application through Windows COM, so edits are visible immediately and preserve PowerPoint-native objects, layouts, themes, animations, and media.
 
-<p align="center">
-  <strong>Safe, real-time PowerPoint editing for IBM Bob through Windows COM automation.</strong>
-</p>
+Unlike file-only libraries such as `python-pptx`, this server operates on the presentation that is already open in PowerPoint. It adds target locking, shape-state preconditions, validation, and retry-aware errors to make agent-driven editing safer.
 
-This project is a Model Context Protocol (MCP) server built to let IBM Bob inspect and edit a live Microsoft PowerPoint presentation. It talks directly to the desktop PowerPoint application through Windows COM, so edits are visible immediately and preserve PowerPoint-native objects, layouts, themes, animations, and media.
-
-Unlike file-only libraries such as `python-pptx`, this server operates on the presentation that is open in PowerPoint. It adds target locking, shape-state preconditions, validation, and retry-aware errors to make agent-driven editing safer.
+This project also uses the Bob skill at [owencase/ppt-skills](https://github.com/owencase/ppt-skills) to guide IBM Bob through template-aware presentation creation and editing.
 
 ## Highlights
 
-- **Built for IBM Bob** — tool instructions and guardrails guide Bob through an inspect, edit, diff, and validate workflow.
+- **Built for IBM Bob** — tool instructions and guardrails guide Bob through an inspect → edit → diff → validate workflow.
 - **Live COM automation** — controls the running PowerPoint application instead of reconstructing the deck from a file model.
 - **165 tools in 28 categories** — covers presentations, slides, shapes, text, tables, charts, themes, animations, media, design references, export, and more.
 - **Fail-closed targeting** — a missing or closed target never silently falls back to a different open deck.
-- **Preconditioned editing** — high-level transform, delete, and visual-replacement tools verify the observed shape state before mutation.
-- **Retry-aware failures** — MCP errors include a `retryable` value and a corrective `hint`, reducing unsafe blind retries.
+- **Preconditioned editing** — transform, delete, and visual-replacement tools verify the observed shape state before mutation.
+- **Retry-aware failures** — MCP errors include a `retryable` flag and a corrective `hint`, reducing unsafe blind retries.
 - **Constrained file output** — save-as and export operations stay inside an explicit trusted output directory.
 - **Native validation** — Bob can compare shape snapshots and validate the result before saving.
 
 ## Requirements
 
-- Windows 10 or Windows 11
-- Desktop Microsoft PowerPoint
-- Python 3.10 or newer
-- [`uv`](https://docs.astral.sh/uv/getting-started/installation/)
+| Component | Minimum version |
+|---|---|
+| Windows | 10 or 11 |
+| Microsoft PowerPoint | Desktop edition (any recent version) |
+| Python | 3.10 |
+| [`uv`](https://docs.astral.sh/uv/getting-started/installation/) | latest stable |
 
 PowerPoint COM automation is Windows-only. The Python test suite can exercise most validation and policy logic without opening PowerPoint, but live editing requires PowerPoint on Windows.
 
-## Install from this repository
+## Installation
 
 Run the following from `projects/owencase`:
 
@@ -56,7 +56,7 @@ The server uses stdio for MCP communication. Running it directly leaves it waiti
 
 ## Register with IBM Bob
 
-Configure Bob to run this local source tree. Replace the example paths with absolute paths on the Windows machine:
+Configure Bob to run this local source tree. Replace the example paths with absolute paths on your Windows machine:
 
 ```json
 {
@@ -78,45 +78,41 @@ Configure Bob to run this local source tree. Replace the example paths with abso
 }
 ```
 
-Use the local `--directory` configuration while developing or deploying this integration. `uvx ppt-mcp` resolves the separately published upstream package and does not run the code in this directory.
+> Use the `--directory` configuration while developing or deploying. `uvx ppt-mcp` resolves the separately published upstream package and does not run the code in this directory.
 
-The legacy `ppt-mcp` command remains available as a compatibility alias, but `ppt-mcp-bob` is the canonical command for this project.
+The legacy `ppt-mcp` command remains available as a compatibility alias, but **`ppt-mcp-bob` is the canonical command for this project**.
 
-## Safe Bob workflow
+## Bob Skill
 
-For an existing presentation, Bob should follow this sequence:
+This project is designed to be used with the Bob skill at **[owencase/ppt-skills](https://github.com/owencase/ppt-skills)**. The skill provides IBM Bob with detailed instructions for template-aware slide creation, layout selection, and design-consistent editing that goes beyond what the MCP tools alone can enforce.
+
+Install the skill following the instructions in that repository, then Bob will automatically apply it when working on presentations.
+
+## Safe Bob Workflow
+
+For an existing presentation, Bob follows this sequence:
 
 1. Call `ppt_activate_presentation` and inspect the exact deck with `ppt_get_presentation_info` and `ppt_list_shapes`.
 2. Call `ppt_set_work_mode` with the observed full path and slide count.
 3. Keep `allow_create=false` for move, resize, edit, deletion, and replacement requests.
 4. Capture a shape snapshot and retain the stable `shape_id` values.
 5. Use `ppt_transform_shapes`, `ppt_delete_shapes`, or `ppt_replace_visual` with observed-state preconditions.
-6. Call `ppt_proofread_text`, inspect every returned text unit contextually, correct confirmed spelling or spacing issues, and rerun it.
+6. Call `ppt_proofread_text`, inspect every returned text unit contextually, correct confirmed issues, and rerun it.
 7. Call `ppt_diff_shape_snapshot` and `ppt_validate_presentation` before saving.
 8. Save only after proofreading findings are empty and the diff and validation match the requested change.
 
-`ppt_proofread_text` is read-only. It checks high-confidence Korean and English
-typos, custom replacements, repeated words, punctuation, brackets, control
-characters, and mojibake. It also returns location-aware text from shapes,
-groups, tables, SmartArt, and charts so Bob can perform the required contextual
-review. Use `allowed_terms` for product names and `custom_replacements` for
-organization-specific terminology. Speaker notes are optional.
+`ppt_proofread_text` is read-only. It checks high-confidence Korean and English typos, custom replacements, repeated words, punctuation, brackets, control characters, and mojibake. It also returns location-aware text from shapes, groups, tables, SmartArt, and charts. Use `allowed_terms` for product names and `custom_replacements` for organization-specific terminology. Speaker notes are optional.
 
-Bob receives a quiet-handoff policy from the MCP server. During presentation work,
-it should not expose plans, tool calls or results, progress, or other
-intermediate context. After saving and validation are complete, it should respond
-in the user's language with exactly three lines covering the outcome, output path
-and scope, and validation result. A client UI may still render its own tool-call
-cards because their visibility is controlled by the client, not by MCP.
+Bob receives a quiet-handoff policy from the MCP server. During presentation work it should not expose plans, tool calls, progress, or intermediate context. After saving and validation are complete, it responds in the user's language with exactly three lines: outcome, output path and scope, and validation result.
 
-The default work mode is intentionally strict:
+### Default work mode
 
 | Setting | Default | Effect |
 |---|---:|---|
 | `allow_create` | `false` | Blocks add, copy, and duplicate tools until creation is explicitly authorized. |
 | `require_preconditions` | `true` | Requires the expected presentation path and shape-state checks for mutations. |
 
-## Environment variables
+## Environment Variables
 
 | Variable | Required | Description |
 |---|---:|---|
@@ -126,21 +122,9 @@ The default work mode is intentionally strict:
 | `PPT_MAX_DOWNLOAD_BYTES` | No | Maximum remote download size in bytes. Default: `20971520` (20 MiB). |
 | `PPT_AUTO_DISMISS_DIALOG` | No | Sends Escape when PowerPoint rejects a COM call as busy. Disabled by default. |
 
-`PPT_AUTO_DISMISS_DIALOG=true` is useful for unattended runs, but it can cancel a dialog the user currently has open. Leave it disabled for interactive sessions unless automatic dismissal is intended.
+> `PPT_AUTO_DISMISS_DIALOG=true` is useful for unattended runs but can cancel a dialog the user has open. Leave it disabled for interactive sessions unless automatic dismissal is intended.
 
-## React Bits design references
-
-`ppt_get_design_reference` provides a small set of curated React Bits links and
-translates the selected visual direction into a fixed 16:9, PowerPoint-native
-design contract. The result includes palette, typography, layout, native shape
-ideas, restrained animation guidance, and the existing `ppt_*` tools to use.
-
-This is intentionally a reference-only connection. It does not install React,
-fetch component source, or attempt to reproduce CSS, canvas, WebGL, hover,
-cursor, or scroll behavior. Core presentation content remains editable native
-PowerPoint objects.
-
-## Tool categories
+## Tool Categories
 
 | Category | Tools | Coverage |
 |---|---:|---|
@@ -185,8 +169,12 @@ uv run pytest
 
 The test suite covers schema strictness, target locking, retry behavior, path constraints, stable shape IDs, slide operations, and validation logic.
 
-## License and credits
+## Version
 
-Released under the MIT License.
+Current version: **1.7.0** (`ppt-mcp-bob` package in [`pyproject.toml`](pyproject.toml))
+
+## License and Credits
+
+Released under the [MIT License](https://opensource.org/licenses/MIT).
 
 This IBM Bob integration is maintained by [owencase](https://github.com/owencase) and builds on the PowerPoint MCP work from [ykuwai/ppt-mcp](https://github.com/ykuwai/ppt-mcp). It uses [FastMCP](https://github.com/jlowin/fastmcp), [pywin32](https://github.com/mhammond/pywin32), and the [Model Context Protocol](https://modelcontextprotocol.io/).
