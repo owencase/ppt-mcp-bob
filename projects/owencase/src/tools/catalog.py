@@ -1,0 +1,215 @@
+"""Compact, declarative MCP tool catalog."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from importlib import import_module
+from typing import Any
+
+
+@dataclass(frozen=True, slots=True)
+class ToolSpec:
+    module: str
+    name: str
+    handler: str
+    title: str
+    description: str
+    read_only: bool = False
+    destructive: bool = False
+    idempotent: bool = True
+    open_world: bool = False
+
+    @property
+    def annotations(self) -> dict[str, Any]:
+        return {
+            "title": self.title,
+            "readOnlyHint": self.read_only,
+            "destructiveHint": self.destructive,
+            "idempotentHint": self.idempotent,
+            "openWorldHint": self.open_world,
+        }
+
+
+TOOL_SPECS = (
+    ToolSpec('ppt_com.app', 'ppt_connect', 'connect_to_powerpoint', 'Connect to PowerPoint', 'Connect to a running PowerPoint instance or launch a new one.'),
+    ToolSpec('ppt_com.app', 'ppt_get_app_info', 'get_app_info', 'Get PowerPoint App Info', 'Get information about the connected PowerPoint application.', read_only=True),
+    ToolSpec('ppt_com.app', 'ppt_get_active_window', 'get_active_window_info', 'Get Active Window Info', 'Get info about the active PowerPoint window and current selection.', read_only=True),
+    ToolSpec('ppt_com.app', 'ppt_list_presentations', 'list_presentations', 'List Open Presentations', 'List all currently open presentations in PowerPoint.', read_only=True),
+    ToolSpec('ppt_com.app', 'ppt_set_window_state', 'set_window_state', 'Set PowerPoint Window State', 'Set the PowerPoint application window state.', idempotent=False),
+    ToolSpec('ppt_com.presentation', 'ppt_create_presentation', 'create_presentation', 'Create Presentation', 'Create a new PowerPoint presentation.', idempotent=False),
+    ToolSpec('ppt_com.presentation', 'ppt_open_presentation', 'open_presentation', 'Open Presentation', 'Open an existing PowerPoint file.', open_world=True),
+    ToolSpec('ppt_com.presentation', 'ppt_save_presentation', 'save_presentation', 'Save Presentation', 'Save the active or specified presentation to its current file.', destructive=True, open_world=True),
+    ToolSpec('ppt_com.presentation', 'ppt_save_presentation_as', 'save_presentation_as', 'Save Presentation As', 'Save a presentation to a new file path and/or format.', destructive=True, idempotent=False, open_world=True),
+    ToolSpec('ppt_com.presentation', 'ppt_close_presentation', 'close_presentation', 'Close Presentation', 'Close a presentation.', destructive=True, idempotent=False),
+    ToolSpec('ppt_com.presentation', 'ppt_get_presentation_info', 'get_presentation_info', 'Get Presentation Info', 'Get detailed information about a presentation.', read_only=True),
+    ToolSpec('ppt_com.presentation', 'ppt_activate_presentation', 'activate_presentation', 'Activate Presentation', 'Set the target presentation for all subsequent MCP tool calls.'),
+    ToolSpec('ppt_com.presentation', 'ppt_list_templates', 'list_templates', 'List Templates', 'List available PowerPoint template files (.potx, .potm).', read_only=True, open_world=True),
+    ToolSpec('ppt_com.slides', 'ppt_add_slide', 'add_slide', 'Add Slide', 'Add a new slide to the active presentation.', idempotent=False),
+    ToolSpec('ppt_com.slides', 'ppt_delete_slide', 'delete_slide', 'Delete Slide', 'Delete one or more slides in a single call.', destructive=True, idempotent=False),
+    ToolSpec('ppt_com.slides', 'ppt_duplicate_slide', 'duplicate_slide', 'Duplicate Slide', 'Duplicate a slide, optionally at a target position and N times.', idempotent=False),
+    ToolSpec('ppt_com.slides', 'ppt_move_slide', 'move_slide', 'Move Slide', 'Move one or more slides to a new position within the presentation.'),
+    ToolSpec('ppt_com.slides', 'ppt_copy_slide', 'copy_slide', 'Copy Slide', 'Copy one or more slides, optionally into another open presentation.', idempotent=False),
+    ToolSpec('ppt_com.slides', 'ppt_list_slides', 'list_slides', 'List Slides', 'List all slides in the active or specified presentation.', read_only=True),
+    ToolSpec('ppt_com.slides', 'ppt_get_slide_info', 'get_slide_info', 'Get Slide Info', 'Get detailed information about a specific slide.', read_only=True),
+    ToolSpec('ppt_com.slides', 'ppt_set_slide_notes', 'set_slide_notes', 'Set Slide Notes', 'Set the speaker notes text and/or formatting for a slide.'),
+    ToolSpec('ppt_com.slides', 'ppt_get_slide_notes', 'get_slide_notes', 'Get Slide Notes', 'Get the speaker notes text for a slide.', read_only=True),
+    ToolSpec('ppt_com.slides', 'ppt_goto_slide', 'goto_slide', 'Go To Slide', 'Navigate the active window to display a specific slide.'),
+    ToolSpec('ppt_com.shapes', 'ppt_add_shape', 'add_shape', 'Add Shape', 'Add an auto shape to a slide (rectangle, oval, arrow, star, etc.).', idempotent=False),
+    ToolSpec('ppt_com.shapes', 'ppt_add_textbox', 'add_textbox', 'Add Text Box', 'Add a text box to a slide.', idempotent=False),
+    ToolSpec('ppt_com.shapes', 'ppt_add_picture', 'add_picture', 'Add Picture', 'Add an image from a file path to a slide.', idempotent=False),
+    ToolSpec('ppt_com.shapes', 'ppt_add_line', 'add_line', 'Add Line', 'Add a straight line to a slide.', idempotent=False),
+    ToolSpec('ppt_com.shapes', 'ppt_list_shapes', 'list_shapes', 'List Shapes', 'List all shapes on a slide.', read_only=True),
+    ToolSpec('ppt_com.shapes', 'ppt_get_shape_info', 'get_shape_info', 'Get Shape Info', 'Get detailed information about a specific shape.', read_only=True),
+    ToolSpec('ppt_com.shapes', 'ppt_update_shape', 'update_shape', 'Update Shape', 'Update properties of an existing shape.'),
+    ToolSpec('ppt_com.shapes', 'ppt_delete_shape', 'delete_shape', 'Delete Shape', 'Delete a shape from a slide.', destructive=True, idempotent=False),
+    ToolSpec('ppt_com.shapes', 'ppt_duplicate_shape', 'duplicate_shape', 'Duplicate Shape', 'Duplicate a shape on the same slide.', idempotent=False),
+    ToolSpec('ppt_com.shapes', 'ppt_set_shape_zorder', 'set_shape_zorder', 'Set Shape Z-Order', 'Change the z-order (stacking position) of a shape.'),
+    ToolSpec('ppt_com.safe_ops', 'ppt_set_work_mode', 'set_work_mode_tool', 'Set Safe Work Mode', 'Set creation policy and presentation-level edit preconditions.'),
+    ToolSpec('ppt_com.safe_ops', 'ppt_get_work_mode', 'get_work_mode_tool', 'Get Safe Work Mode', 'Return the current creation and precondition policy.', read_only=True),
+    ToolSpec('ppt_com.safe_ops', 'ppt_transform_shapes', 'transform_shapes', 'Transform Existing Shapes by ID', 'Atomically move, resize, or rotate existing shapes after checking observed state.'),
+    ToolSpec('ppt_com.safe_ops', 'ppt_replace_visual', 'replace_visual', 'Replace Visual with Existing Shape', 'Replace target shapes with an authentic existing shape; never generates a lookalike.', destructive=True, idempotent=False),
+    ToolSpec('ppt_com.safe_ops', 'ppt_delete_shapes', 'delete_shapes', 'Delete Existing Shapes by ID', 'Delete existing shapes only after validating their observed state.', destructive=True, idempotent=False),
+    ToolSpec('ppt_com.safe_ops', 'ppt_capture_shape_snapshot', 'capture_shape_snapshot', 'Capture Shape Snapshot', 'Capture stable shape IDs and properties before editing.', read_only=True, idempotent=False),
+    ToolSpec('ppt_com.safe_ops', 'ppt_diff_shape_snapshot', 'diff_shape_snapshot', 'Diff Shape Snapshot', 'Report added, deleted, and modified shapes relative to a snapshot.', read_only=True),
+    ToolSpec('ppt_com.safe_ops', 'ppt_validate_presentation', 'validate_presentation', 'Validate Presentation Quality', 'Find undersized text, tiny frames, and empty text placeholders.', read_only=True),
+    ToolSpec('ppt_com.text', 'ppt_set_text', 'set_text', 'Set Shape Text', 'Set the entire text content of a shape.'),
+    ToolSpec('ppt_com.text', 'ppt_get_text', 'get_text', 'Get Shape Text', 'Get text content from a shape, including paragraph and run details.', read_only=True),
+    ToolSpec('ppt_com.text', 'ppt_format_text', 'format_text', 'Format All Text in Shape', 'Apply formatting to ALL text in a shape.'),
+    ToolSpec('ppt_com.text', 'ppt_format_text_range', 'format_text_range', 'Format Partial Text (Characters)', "Format a specific character range within a shape's text."),
+    ToolSpec('ppt_com.text', 'ppt_set_paragraph_format', 'set_paragraph_format', 'Set Paragraph Format', 'Set paragraph-level formatting for a shape.'),
+    ToolSpec('ppt_com.text', 'ppt_set_bullet', 'set_bullet', 'Set Bullet/Numbering', 'Set bullet/numbering and appearance for paragraphs in a shape.'),
+    ToolSpec('ppt_com.text', 'ppt_find_replace_text', 'find_replace_text', 'Find or Replace Text', 'Find (and optionally replace) text in shapes that have a text frame.'),
+    ToolSpec('ppt_com.text', 'ppt_set_textframe', 'set_textframe', 'Set TextFrame Properties', 'Configure text frame auto-fit, word wrap, margins, orientation, and vertical anchor.'),
+    ToolSpec('ppt_com.text', 'ppt_get_all_text', 'get_all_text', 'Get All Text as Markdown', 'Extract all text from the presentation as pseudo-Markdown.', read_only=True),
+    ToolSpec('ppt_com.text', 'ppt_check_typography', 'check_typography', 'Check Typography (Widow Lines)', 'Detect and optionally fix typography issues on slides.', idempotent=False),
+    ToolSpec('ppt_com.proofreading', 'ppt_proofread_text', 'proofread_text', 'Proofread Presentation Text', 'Check presentation text for likely typos without changing the deck.', read_only=True),
+    ToolSpec('ppt_com.placeholders', 'ppt_list_placeholders', 'list_placeholders', 'List Placeholders', 'List all placeholders on a slide.', read_only=True),
+    ToolSpec('ppt_com.placeholders', 'ppt_get_placeholder', 'get_placeholder', 'Get Placeholder Details', 'Get detailed information about a specific placeholder.', read_only=True),
+    ToolSpec('ppt_com.placeholders', 'ppt_set_placeholder_text', 'set_placeholder_text', 'Set Placeholder Text', 'Set text in a placeholder.'),
+    ToolSpec('ppt_com.placeholders', 'ppt_list_designs', 'list_designs', 'List Designs', 'List all designs (slide masters) in the presentation.', read_only=True),
+    ToolSpec('ppt_com.placeholders', 'ppt_list_layouts', 'list_layouts', 'List Slide Layouts', 'List all available slide layouts in the presentation.', read_only=True),
+    ToolSpec('ppt_com.placeholders', 'ppt_get_slide_master_info', 'get_slide_master_info', 'Get Slide Master Info', 'Get slide master information including theme colors.', read_only=True),
+    ToolSpec('ppt_com.formatting', 'ppt_set_fill', 'set_fill', 'Set Shape Fill', 'Set the fill of a shape.'),
+    ToolSpec('ppt_com.formatting', 'ppt_set_line', 'set_line', 'Set Shape Line/Border', 'Set the border/line of a shape.'),
+    ToolSpec('ppt_com.formatting', 'ppt_set_shadow', 'set_shadow', 'Set Shape Shadow', 'Set shadow effect on a shape.'),
+    ToolSpec('ppt_com.tables', 'ppt_add_table', 'add_table', 'Add Table', 'Add a table to a slide.', idempotent=False),
+    ToolSpec('ppt_com.tables', 'ppt_get_table_data', 'get_table_data', 'Get Table Data', 'Get all cell text values from a table.', read_only=True),
+    ToolSpec('ppt_com.tables', 'ppt_set_table_cell', 'set_table_cell', 'Set Table Cell', 'Set text and/or formatting for a table cell.'),
+    ToolSpec('ppt_com.tables', 'ppt_set_table_data', 'set_table_data', 'Set Table Data (Batch)', 'Batch-set table cell text from a 2D array.'),
+    ToolSpec('ppt_com.tables', 'ppt_merge_table_cells', 'merge_table_cells', 'Merge Table Cells', 'Merge a range of table cells.', idempotent=False),
+    ToolSpec('ppt_com.tables', 'ppt_add_table_row', 'add_table_row', 'Add Table Row', 'Add a row to a table.', idempotent=False),
+    ToolSpec('ppt_com.tables', 'ppt_delete_table_row', 'delete_table_row', 'Delete Table Row', 'Delete a row from a table.', destructive=True, idempotent=False),
+    ToolSpec('ppt_com.tables', 'ppt_add_table_column', 'add_table_column', 'Add Table Column', 'Add a column to a table.', idempotent=False),
+    ToolSpec('ppt_com.tables', 'ppt_delete_table_column', 'delete_table_column', 'Delete Table Column', 'Delete a column from a table.', destructive=True, idempotent=False),
+    ToolSpec('ppt_com.tables', 'ppt_set_table_style', 'set_table_style', 'Set Table Style', 'Apply a table style and configure banding options.'),
+    ToolSpec('ppt_com.tables', 'ppt_set_table_layout', 'set_table_layout', 'Set Table Layout', 'Set row heights and/or column widths for an existing table.'),
+    ToolSpec('ppt_com.tables', 'ppt_split_table_cells', 'split_table_cells', 'Split Table Cells', 'Split (unmerge) a merged table cell.', idempotent=False),
+    ToolSpec('ppt_com.tables', 'ppt_set_table_borders', 'set_table_borders', 'Set Table Borders', 'Set border style for a range of table cells.'),
+    ToolSpec('ppt_com.export', 'ppt_export_pdf', 'export_pdf', 'Export to PDF', 'Export the active presentation to a PDF file.', idempotent=False, open_world=True),
+    ToolSpec('ppt_com.export', 'ppt_export_images', 'export_images', 'Export as Images', 'Export slides as images (PNG or JPG) into output_dir.', idempotent=False, open_world=True),
+    ToolSpec('ppt_com.export', 'ppt_copy_to_clipboard', 'copy_to_clipboard', 'Copy Slides to Clipboard', 'Copy slides as PNG images to the Windows clipboard.'),
+    ToolSpec('ppt_com.slideshow', 'ppt_slideshow_start', 'slideshow_start', 'Start Slide Show', 'Start a slide show presentation.', idempotent=False),
+    ToolSpec('ppt_com.slideshow', 'ppt_slideshow_stop', 'slideshow_stop', 'Stop Slide Show', 'End the currently running slide show.'),
+    ToolSpec('ppt_com.slideshow', 'ppt_slideshow_next', 'slideshow_next', 'Slide Show Next', 'Advance to the next slide in the running slide show.', idempotent=False),
+    ToolSpec('ppt_com.slideshow', 'ppt_slideshow_previous', 'slideshow_previous', 'Slide Show Previous', 'Go back to the previous slide in the running slide show.', idempotent=False),
+    ToolSpec('ppt_com.slideshow', 'ppt_slideshow_goto', 'slideshow_goto', 'Slide Show Go To Slide', 'Navigate to a specific slide in the running slide show.'),
+    ToolSpec('ppt_com.slideshow', 'ppt_slideshow_get_status', 'slideshow_get_status', 'Get Slide Show Status', 'Get the current state of the running slide show.', read_only=True),
+    ToolSpec('ppt_com.groups', 'ppt_group_shapes', 'group_shapes', 'Group Shapes', 'Group multiple shapes into a single group.', idempotent=False),
+    ToolSpec('ppt_com.groups', 'ppt_ungroup_shapes', 'ungroup_shapes', 'Ungroup Shapes', 'Ungroup a group shape into its individual shapes.', destructive=True, idempotent=False),
+    ToolSpec('ppt_com.groups', 'ppt_get_group_items', 'get_group_items', 'Get Group Items', 'Get information about all items within a group shape.', read_only=True),
+    ToolSpec('ppt_com.connectors', 'ppt_add_connector', 'add_connector', 'Add Connector', 'Add a connector between two shapes.', idempotent=False),
+    ToolSpec('ppt_com.connectors', 'ppt_format_connector', 'format_connector', 'Format Connector', "Format a connector's line properties and reconnect endpoints."),
+    ToolSpec('ppt_com.hyperlinks', 'ppt_add_hyperlink', 'add_hyperlink', 'Add Hyperlink', 'Add a hyperlink to a shape.'),
+    ToolSpec('ppt_com.hyperlinks', 'ppt_get_hyperlinks', 'get_hyperlinks', 'Get Hyperlinks', 'Get all hyperlinks on a slide.', read_only=True),
+    ToolSpec('ppt_com.hyperlinks', 'ppt_remove_hyperlink', 'remove_hyperlink', 'Remove Hyperlink', 'Remove a hyperlink from a shape.'),
+    ToolSpec('ppt_com.sections', 'ppt_add_section', 'add_section', 'Add Section', 'Add a section to the presentation.', idempotent=False),
+    ToolSpec('ppt_com.sections', 'ppt_list_sections', 'list_sections', 'List Sections', 'List all sections in the active presentation.', read_only=True),
+    ToolSpec('ppt_com.sections', 'ppt_manage_section', 'manage_section', 'Manage Section', 'Manage a section: rename, move, or delete.'),
+    ToolSpec('ppt_com.properties', 'ppt_set_properties', 'set_properties', 'Set Document Properties', 'Set built-in document properties.'),
+    ToolSpec('ppt_com.properties', 'ppt_get_properties', 'get_properties', 'Get Document Properties', 'Get built-in document properties.', read_only=True),
+    ToolSpec('ppt_com.charts', 'ppt_add_chart', 'add_chart', 'Add Chart', 'Add a chart to a slide.', idempotent=False),
+    ToolSpec('ppt_com.charts', 'ppt_set_chart_data', 'set_chart_data', 'Set Chart Data', 'Set chart data by writing categories and series to the Excel workbook.'),
+    ToolSpec('ppt_com.charts', 'ppt_get_chart_data', 'get_chart_data', 'Get Chart Data', 'Read chart data from the underlying Excel workbook.', read_only=True),
+    ToolSpec('ppt_com.charts', 'ppt_format_chart', 'format_chart', 'Format Chart', 'Format chart properties: title, legend, and chart style.'),
+    ToolSpec('ppt_com.charts', 'ppt_format_chart_axis', 'format_chart_axis', 'Format Chart Axis', 'Format an axis: scale (min/max/major_unit/minor_unit), tick spacing,'),
+    ToolSpec('ppt_com.charts', 'ppt_set_chart_series', 'set_chart_series', 'Set Chart Series Format', 'Format an individual chart series.'),
+    ToolSpec('ppt_com.charts', 'ppt_change_chart_type', 'change_chart_type', 'Change Chart Type', 'Change the type of an existing chart.'),
+    ToolSpec('ppt_com.animation', 'ppt_set_slide_transition', 'set_slide_transition', 'Set Slide Transition', 'Set the transition effect for a slide.'),
+    ToolSpec('ppt_com.animation', 'ppt_add_animation', 'add_animation', 'Add Animation', 'Add an animation effect to a shape on a slide.', idempotent=False),
+    ToolSpec('ppt_com.animation', 'ppt_list_animations', 'list_animations', 'List Animations', 'List all animations on a slide (main sequence and interactive sequences).', read_only=True),
+    ToolSpec('ppt_com.animation', 'ppt_remove_animation', 'remove_animation', 'Remove Animation', "Remove a single animation from a slide's main or interactive sequence.", destructive=True, idempotent=False),
+    ToolSpec('ppt_com.animation', 'ppt_clear_animations', 'clear_animations', 'Clear Animations', 'Clear all animations from a slide (main sequence and interactive sequences).', destructive=True),
+    ToolSpec('ppt_com.animation', 'ppt_update_animation', 'update_animation', 'Update Animation', "Update an existing animation in a slide's main or interactive sequence.", idempotent=False),
+    ToolSpec('ppt_com.themes', 'ppt_apply_theme', 'apply_theme', 'Apply Theme', 'Apply a theme file to the active presentation.'),
+    ToolSpec('ppt_com.themes', 'ppt_get_theme_colors', 'get_theme_colors', 'Get Theme Colors', 'Get the current theme color scheme of the active presentation.', read_only=True),
+    ToolSpec('ppt_com.themes', 'ppt_set_theme_colors', 'set_theme_colors', 'Set Theme Colors', 'Set theme colors of the active presentation.'),
+    ToolSpec('ppt_com.themes', 'ppt_set_headers_footers', 'set_headers_footers', 'Set Headers & Footers', 'Set headers and footers across all slides in the presentation.'),
+    ToolSpec('ppt_com.media', 'ppt_add_video', 'add_video', 'Add Video', 'Add a video file to a slide.', idempotent=False),
+    ToolSpec('ppt_com.media', 'ppt_add_audio', 'add_audio', 'Add Audio', 'Add an audio file to a slide.', idempotent=False),
+    ToolSpec('ppt_com.media', 'ppt_set_media_settings', 'set_media_settings', 'Set Media Settings', 'Configure playback settings for a media shape (video or audio).'),
+    ToolSpec('ppt_com.smartart', 'ppt_add_smartart', 'add_smartart', 'Add SmartArt', 'Add a SmartArt graphic to a slide.', idempotent=False),
+    ToolSpec('ppt_com.smartart', 'ppt_modify_smartart', 'modify_smartart', 'Modify SmartArt', 'Modify a SmartArt graphic.', idempotent=False),
+    ToolSpec('ppt_com.smartart', 'ppt_list_smartart_layouts', 'list_smartart_options', 'List SmartArt Layouts / Colors / Styles', 'List SmartArt layouts, color schemes, or quick styles.', read_only=True),
+    ToolSpec('ppt_com.edit_ops', 'ppt_undo', 'undo', 'Undo', 'Undo recent actions in PowerPoint.', idempotent=False),
+    ToolSpec('ppt_com.edit_ops', 'ppt_redo', 'redo', 'Redo', 'Redo recently undone actions in PowerPoint.', idempotent=False),
+    ToolSpec('ppt_com.edit_ops', 'ppt_copy_shape_to_slide', 'copy_shape_to_slide', 'Copy Shape to Slide', 'Copy a shape from one slide to another slide.', idempotent=False),
+    ToolSpec('ppt_com.edit_ops', 'ppt_copy_formatting', 'copy_formatting', 'Copy Formatting', 'Copy formatting from a source shape to one or more target shapes.'),
+    ToolSpec('ppt_com.edit_ops', 'ppt_start_undo_entry', 'start_undo_entry', 'Start Undo Entry', 'Start a new undo entry in PowerPoint.', idempotent=False),
+    ToolSpec('ppt_com.edit_ops', 'ppt_execute_mso', 'execute_mso', 'Execute MSO Command', 'Execute a built-in PowerPoint MSO command by name.', idempotent=False),
+    ToolSpec('ppt_com.layout', 'ppt_align_shapes', 'align_shapes', 'Align Shapes', 'Align multiple shapes on a slide.'),
+    ToolSpec('ppt_com.layout', 'ppt_distribute_shapes', 'distribute_shapes', 'Distribute Shapes', 'Distribute shapes evenly on a slide.'),
+    ToolSpec('ppt_com.layout', 'ppt_get_slide_size', 'get_slide_size', 'Get Slide Size', 'Get the current slide size of the active presentation.', read_only=True),
+    ToolSpec('ppt_com.layout', 'ppt_set_slide_size', 'set_slide_size', 'Set Slide Size', 'Set the slide size of the active presentation.'),
+    ToolSpec('ppt_com.layout', 'ppt_set_slide_background', 'set_slide_background', 'Set Slide Background', 'Set the background of a specific slide or multiple slides.'),
+    ToolSpec('ppt_com.layout', 'ppt_flip_shape', 'flip_shape', 'Flip Shape', 'Flip a shape horizontally or vertically.', idempotent=False),
+    ToolSpec('ppt_com.layout', 'ppt_merge_shapes', 'merge_shapes', 'Merge Shapes', 'Merge shapes using a Boolean operation.', destructive=True, idempotent=False),
+    ToolSpec('ppt_com.effects', 'ppt_set_glow', 'set_glow', 'Set Shape Glow', 'Set glow effect on a shape.'),
+    ToolSpec('ppt_com.effects', 'ppt_set_reflection', 'set_reflection', 'Set Shape Reflection', 'Set reflection effect on a shape.'),
+    ToolSpec('ppt_com.effects', 'ppt_set_soft_edge', 'set_soft_edge', 'Set Shape Soft Edge', 'Set soft edge effect on a shape.'),
+    ToolSpec('ppt_com.comments', 'ppt_add_comment', 'add_comment', 'Add Slide Comment', 'Add a comment to a slide.', idempotent=False),
+    ToolSpec('ppt_com.comments', 'ppt_list_comments', 'list_comments', 'List Slide Comments', 'List all comments on a slide.', read_only=True),
+    ToolSpec('ppt_com.comments', 'ppt_delete_comment', 'delete_comment', 'Delete Slide Comment', 'Delete a comment from a slide by its 1-based index.', destructive=True, idempotent=False),
+    ToolSpec('ppt_com.advanced_ops', 'ppt_set_tag', 'set_tag', 'Set Tag', 'Set a tag (key-value pair) on a shape, slide, or presentation.'),
+    ToolSpec('ppt_com.advanced_ops', 'ppt_get_tags', 'get_tags', 'Get Tags', 'Get all tags from a shape, slide, or presentation.', read_only=True),
+    ToolSpec('ppt_com.advanced_ops', 'ppt_replace_font', 'replace_font', 'Replace Font', 'Replace all occurrences of a font throughout the active presentation.'),
+    ToolSpec('ppt_com.advanced_ops', 'ppt_list_fonts', 'list_fonts', 'List Fonts', 'List all fonts used in the active presentation.', read_only=True),
+    ToolSpec('ppt_com.advanced_ops', 'ppt_set_default_fonts', 'set_default_fonts', 'Set Default Fonts', 'Set default fonts for the entire presentation (Latin and East Asian separately).'),
+    ToolSpec('ppt_com.advanced_ops', 'ppt_crop_picture', 'crop_picture', 'Crop Picture', 'Crop a picture shape - rectangular trim and/or crop-to-shape.'),
+    ToolSpec('ppt_com.advanced_ops', 'ppt_set_picture_format', 'set_picture_format', 'Set Picture Format', 'Adjust picture format properties: brightness, contrast, color type, and transparency.'),
+    ToolSpec('ppt_com.advanced_ops', 'ppt_export_shape', 'export_shape', 'Export Shape', 'Export a shape as an image file.', idempotent=False, open_world=True),
+    ToolSpec('ppt_com.advanced_ops', 'ppt_set_slide_hidden', 'set_slide_hidden', 'Set Slide Hidden', 'Set a slide as hidden or visible in the slideshow.'),
+    ToolSpec('ppt_com.advanced_ops', 'ppt_select_shapes', 'select_shapes', 'Select Shapes', 'Select multiple shapes on a slide by name.'),
+    ToolSpec('ppt_com.advanced_ops', 'ppt_get_selection', 'get_selection', 'Get Selection', 'Get the current selection in the active PowerPoint window.', read_only=True),
+    ToolSpec('ppt_com.advanced_ops', 'ppt_set_view', 'set_view', 'Set View', 'Set the PowerPoint view type and/or zoom level.'),
+    ToolSpec('ppt_com.advanced_ops', 'ppt_copy_animation', 'copy_animation', 'Copy Animation', 'Copy animation effects from one shape to another on the same slide.'),
+    ToolSpec('ppt_com.advanced_ops', 'ppt_add_picture_from_url', 'add_picture_from_url', 'Add Picture from URL', 'Add a picture to a slide by downloading from a URL.', idempotent=False, open_world=True),
+    ToolSpec('ppt_com.advanced_ops', 'ppt_add_svg_icon', 'add_svg_icon', 'Add SVG Icon', 'Add a Material Symbols icon as SVG image to a slide.', idempotent=False, open_world=True),
+    ToolSpec('ppt_com.advanced_ops', 'ppt_lock_aspect_ratio', 'lock_aspect_ratio', 'Lock Aspect Ratio', 'Lock or unlock the aspect ratio of a shape.'),
+    ToolSpec('ppt_com.advanced_ops', 'ppt_search_icons', 'search_icons', 'Search Material Icons', "Search Google's Material Symbols icon library by keyword.", read_only=True, open_world=True),
+    ToolSpec('ppt_com.advanced_ops', 'ppt_set_default_shape_style', 'set_default_shape_style', 'Set Default Shape Style', 'Set the default style applied to new shapes in the active presentation.'),
+    ToolSpec('ppt_com.batch_apply', 'ppt_batch_apply_formatting', 'batch_apply_formatting', 'Batch Apply Formatting', 'Apply several formatting operations in one call.'),
+    ToolSpec('ppt_com.freeform', 'ppt_build_freeform', 'build_freeform', 'Build Freeform Shape', 'Create a new freeform (path) shape on a slide.', idempotent=False),
+    ToolSpec('ppt_com.freeform', 'ppt_get_shape_nodes', 'get_shape_nodes', 'Get Freeform Shape Nodes', 'Read all nodes of a freeform shape.', read_only=True),
+    ToolSpec('ppt_com.freeform', 'ppt_set_node_position', 'set_node_position', 'Set Freeform Node Position', 'Move a node of a freeform shape to new coordinates.', idempotent=False),
+    ToolSpec('ppt_com.freeform', 'ppt_insert_node', 'insert_node', 'Insert Freeform Node', 'Insert a new node into a freeform shape after an existing node.', idempotent=False),
+    ToolSpec('ppt_com.freeform', 'ppt_delete_node', 'delete_node', 'Delete Freeform Node', 'Delete a node from a freeform shape.', destructive=True, idempotent=False),
+    ToolSpec('ppt_com.freeform', 'ppt_set_node_editing_type', 'set_node_editing_type', 'Set Freeform Node Editing Type', 'Change the editing type of a freeform node.', idempotent=False),
+    ToolSpec('ppt_com.freeform', 'ppt_set_segment_type', 'set_segment_type', 'Set Freeform Segment Type', 'Change the segment type of the segment following a freeform node.', idempotent=False),
+    ToolSpec('tools.design_reference', 'ppt_get_design_reference', 'get_design_reference', 'Get Design Reference', 'Translate a curated React Bits visual reference into a PowerPoint-native design recipe without importing React code.', read_only=True),
+)
+
+
+def register_tools(mcp) -> None:
+    """Register every required tool from the compact catalog."""
+    modules: dict[str, Any] = {}
+    for spec in TOOL_SPECS:
+        module = modules.get(spec.module)
+        if module is None:
+            module = import_module(spec.module)
+            modules[spec.module] = module
+        handler = getattr(module, spec.handler)
+        mcp.tool(
+            name=spec.name,
+            description=spec.description,
+            annotations=spec.annotations,
+        )(handler)
